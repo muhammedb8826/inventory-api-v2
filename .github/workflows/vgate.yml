@@ -1,0 +1,45 @@
+name: Deploy VGATE API to cPanel via FTP
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  web-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20.x
+
+    # No build in CI — we'll build on the server
+    - name: Install dependencies
+      run: npm install
+    - name: Build the project
+      run: |
+        npm run build
+
+    - name: Prepare deploy bundle (build-time files only)
+      run: |
+        rm -rf deploy
+        mkdir -p deploy
+        cp package.json package-lock.json deploy/
+        cp tsconfig.json tsconfig.build.json nest-cli.json deploy/
+        mkdir -p deploy/src
+        cp -r src/* deploy/src/
+
+    - name: Deploy runtime bundle to cPanel via FTP
+      uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+      with:
+        server: ${{ secrets.FTP_SERVER_VGATE }}
+        username: ${{ secrets.FTP_USERNAME_VGATE }}
+        password: ${{ secrets.FTP_PASSWORD_VGATE }}
+        server-dir: ${{ secrets.CPANEL_DIR_VGATE }}
+        local-dir: deploy/
+        protocol: ftp
