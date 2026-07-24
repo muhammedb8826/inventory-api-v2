@@ -2,6 +2,7 @@
 
 This document is the **canonical REST contract** for the NestJS backend (`inventory-api`). The Next.js frontend consumes these endpoints via `NEXT_PUBLIC_API_URL`.
 
+**Frontend guide (overview):** [README.md](./README.md)  
 **Base URL:** `http://localhost:3001/api` (backend `PORT`; frontend override: `NEXT_PUBLIC_API_URL` in `.env.local`)
 
 ### Currency
@@ -1156,6 +1157,16 @@ User-scoped in-app notifications. Any authenticated user can manage **their own*
 
 Notifications are created automatically when you record a **sale**, **purchase**, or **stock transfer**. **Low-stock alerts** fire when quantity crosses at or below `reorderPoint` (or hits zero), and go to users with `inventory.read`.
 
+**Customer inquiries** also create notifications:
+
+| Event | Recipients | Title |
+|-------|------------|-------|
+| Public form submitted | Users with `inquiries.read` | New customer inquiry |
+| Assigned to a user | New assignee (skipped if they assigned themselves) | Inquiry assigned to you |
+| Reassigned / unassigned | Previous assignee (skipped if they are the actor) | Inquiry reassigned / Inquiry unassigned |
+
+Deep-link with `entityType: "inquiry"` + `entityId`. Metadata includes `event` (`submitted` \| `assigned` \| `reassigned` \| `unassigned`), `subject`, `contactName`, `source`, `priority`.
+
 | Method | Path | Auth |
 |--------|------|------|
 | GET | `/notifications` | Bearer token |
@@ -1209,8 +1220,9 @@ Notifications are created automatically when you record a **sale**, **purchase**
 | `CREDIT_DUE` | Credit payment reminders |
 | `EXPENSE` | Expense events |
 | `SYSTEM` | General system messages |
+| `INQUIRY` | Customer inquiry submitted / assignment changes |
 
-Use `entityType` + `entityId` to deep-link in the UI (e.g. `/sales/:entityId`).
+Use `entityType` + `entityId` to deep-link in the UI (e.g. `/sales/:entityId`, `/inquiries/:entityId`).
 
 ---
 

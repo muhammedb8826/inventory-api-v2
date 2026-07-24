@@ -46,8 +46,12 @@ export class InquiriesController {
 
   @Patch(':id')
   @RequirePermissions('inquiries.write')
-  update(@Param('id') id: string, @Body() dto: UpdateInquiryDto) {
-    return this.service.update(id, dto);
+  update(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() dto: UpdateInquiryDto,
+  ) {
+    return this.service.update(id, dto, user.sub);
   }
 
   @Delete(':id')

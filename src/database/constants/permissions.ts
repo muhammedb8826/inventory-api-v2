@@ -75,7 +75,11 @@ export const PERMISSION_DEFINITIONS = [
   { code: 'suppliers.write', name: 'Manage suppliers', module: 'suppliers' },
   { code: 'customers.read', name: 'View customers', module: 'customers' },
   { code: 'customers.write', name: 'Manage customers', module: 'customers' },
-  { code: 'inquiries.read', name: 'View customer inquiries', module: 'inquiries' },
+  {
+    code: 'inquiries.read',
+    name: 'View customer inquiries',
+    module: 'inquiries',
+  },
   {
     code: 'inquiries.write',
     name: 'Manage customer inquiries',

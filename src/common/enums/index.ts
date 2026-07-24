@@ -103,6 +103,7 @@ export enum NotificationType {
   CREDIT_DUE = 'CREDIT_DUE',
   EXPENSE = 'EXPENSE',
   SYSTEM = 'SYSTEM',
+  INQUIRY = 'INQUIRY',
 }
 
 /** How a customer inquiry entered the system. */

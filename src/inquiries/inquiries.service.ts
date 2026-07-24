@@ -6,16 +6,13 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { parseDateRange } from '../common/dto/date-range.dto';
-import {
-  InquiryPriority,
-  InquirySource,
-  InquiryStatus,
-} from '../common/enums';
+import { InquiryPriority, InquirySource, InquiryStatus } from '../common/enums';
 import { Customer } from '../database/entities/customer.entity';
 import { CustomerInquiry } from '../database/entities/customer-inquiry.entity';
 import { Item } from '../database/entities/item.entity';
 import { Sale } from '../database/entities/sale.entity';
 import { User } from '../database/entities/user.entity';
+import { NotificationsService } from '../notifications/notifications.service';
 import {
   CreateInquiryDto,
   InquiryListQueryDto,
@@ -36,6 +33,7 @@ export class InquiriesService {
     private readonly userRepo: Repository<User>,
     @InjectRepository(Sale)
     private readonly saleRepo: Repository<Sale>,
+    private readonly notifications: NotificationsService,
   ) {}
 
   private assertContactChannel(phone?: string | null, email?: string | null) {
@@ -64,7 +62,8 @@ export class InquiriesService {
       const user = await this.userRepo.findOne({
         where: { id: opts.assignedToUserId, isActive: true },
       });
-      if (!user) throw new BadRequestException('Assignee not found or inactive');
+      if (!user)
+        throw new BadRequestException('Assignee not found or inactive');
     }
     if (opts.convertedSaleId) {
       const sale = await this.saleRepo.findOne({
@@ -72,6 +71,16 @@ export class InquiriesService {
       });
       if (!sale) throw new BadRequestException('Sale not found');
     }
+  }
+
+  private inquiryNotifyPayload(row: CustomerInquiry) {
+    return {
+      inquiryId: row.id,
+      subject: row.subject,
+      contactName: row.contactName,
+      source: row.source,
+      priority: row.priority,
+    };
   }
 
   findAll(query: InquiryListQueryDto) {
@@ -178,6 +187,8 @@ export class InquiriesService {
       }),
     );
 
+    await this.notifications.onInquirySubmitted(this.inquiryNotifyPayload(row));
+
     return {
       id: row.id,
       status: row.status,
@@ -193,7 +204,7 @@ export class InquiriesService {
       assignedToUserId: dto.assignedToUserId,
     });
 
-    return this.repo.save(
+    const row = await this.repo.save(
       this.repo.create({
         contactName: dto.contactName.trim(),
         phone: dto.phone?.trim() || null,
@@ -212,10 +223,22 @@ export class InquiriesService {
         convertedSaleId: null,
       }),
     );
+
+    if (row.assignedToUserId) {
+      await this.notifications.onInquiryAssignmentChanged({
+        ...this.inquiryNotifyPayload(row),
+        assigneeUserId: row.assignedToUserId,
+        previousAssigneeUserId: null,
+        actorUserId: createdById,
+      });
+    }
+
+    return row;
   }
 
-  async update(id: string, dto: UpdateInquiryDto) {
+  async update(id: string, dto: UpdateInquiryDto, actorUserId: string) {
     const row = await this.findOne(id);
+    const previousAssigneeUserId = row.assignedToUserId;
 
     const nextPhone = dto.phone !== undefined ? dto.phone : row.phone;
     const nextEmail = dto.email !== undefined ? dto.email : row.email;
@@ -255,7 +278,18 @@ export class InquiriesService {
       }
     }
 
-    return this.repo.save(row);
+    const saved = await this.repo.save(row);
+
+    if (dto.assignedToUserId !== undefined) {
+      await this.notifications.onInquiryAssignmentChanged({
+        ...this.inquiryNotifyPayload(saved),
+        assigneeUserId: saved.assignedToUserId,
+        previousAssigneeUserId,
+        actorUserId,
+      });
+    }
+
+    return saved;
   }
 
   async remove(id: string) {

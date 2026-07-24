@@ -268,6 +268,109 @@ export class NotificationsService {
     );
   }
 
+  /**
+   * New public website inquiry → inbox for staff with inquiries.read.
+   * Internal creates do not broadcast (creator already knows).
+   */
+  async onInquirySubmitted(params: {
+    inquiryId: string;
+    subject: string;
+    contactName: string;
+    source: string;
+    priority?: string;
+  }) {
+    if (params.source !== 'PUBLIC') return;
+
+    await this.notifyUsersWithPermission('inquiries.read', {
+      module: 'inquiries',
+      type: NotificationType.INQUIRY,
+      title: 'New customer inquiry',
+      message: `"${params.subject}" from ${params.contactName}`,
+      entityType: 'inquiry',
+      entityId: params.inquiryId,
+      metadata: {
+        subject: params.subject,
+        contactName: params.contactName,
+        source: params.source,
+        priority: params.priority ?? 'NORMAL',
+        event: 'submitted',
+      },
+    });
+  }
+
+  /**
+   * Assignment change notifications (CRM-style):
+   * - New assignee is notified (unless they assigned themselves)
+   * - Previous assignee is notified on reassignment/unassignment (unless they are the actor)
+   */
+  async onInquiryAssignmentChanged(params: {
+    inquiryId: string;
+    subject: string;
+    contactName: string;
+    source: string;
+    priority?: string;
+    assigneeUserId: string | null;
+    previousAssigneeUserId: string | null;
+    actorUserId?: string | null;
+  }) {
+    const {
+      inquiryId,
+      subject,
+      contactName,
+      source,
+      assigneeUserId,
+      previousAssigneeUserId,
+      actorUserId,
+    } = params;
+
+    if (assigneeUserId === previousAssigneeUserId) return;
+
+    const baseMeta = {
+      subject,
+      contactName,
+      source,
+      priority: params.priority ?? 'NORMAL',
+    };
+
+    if (assigneeUserId && assigneeUserId !== actorUserId) {
+      await this.notifyUsers([assigneeUserId], {
+        module: 'inquiries',
+        type: NotificationType.INQUIRY,
+        title: 'Inquiry assigned to you',
+        message: `"${subject}" from ${contactName} was assigned to you`,
+        entityType: 'inquiry',
+        entityId: inquiryId,
+        metadata: {
+          ...baseMeta,
+          event: 'assigned',
+          previousAssigneeUserId,
+        },
+      });
+    }
+
+    if (
+      previousAssigneeUserId &&
+      previousAssigneeUserId !== assigneeUserId &&
+      previousAssigneeUserId !== actorUserId
+    ) {
+      await this.notifyUsers([previousAssigneeUserId], {
+        module: 'inquiries',
+        type: NotificationType.INQUIRY,
+        title: assigneeUserId ? 'Inquiry reassigned' : 'Inquiry unassigned',
+        message: assigneeUserId
+          ? `"${subject}" was reassigned to someone else`
+          : `"${subject}" is no longer assigned to you`,
+        entityType: 'inquiry',
+        entityId: inquiryId,
+        metadata: {
+          ...baseMeta,
+          event: assigneeUserId ? 'reassigned' : 'unassigned',
+          newAssigneeUserId: assigneeUserId,
+        },
+      });
+    }
+  }
+
   private async findOwned(userId: string, id: string) {
     const notification = await this.repo.findOne({ where: { id, userId } });
     if (!notification) {

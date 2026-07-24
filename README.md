@@ -74,11 +74,12 @@ Set `DB_SEED=false` after the first successful seed.
 
 ## Frontend integration
 
-See **[docs/FRONTEND_API.md](docs/FRONTEND_API.md)** for the full REST contract.
+Start here: **[docs/README.md](docs/README.md)** (frontend guide).  
+Full REST contract: **[docs/FRONTEND_API.md](docs/FRONTEND_API.md)**.
 
 **Important for the Next.js client:**
 
-1. **List responses** use `{ data, meta: { page, limit, total, totalPages } }` on purchases, sales, inventory, credits, expenses, transfers, suppliers, customers, and bank transactions. **Inventory, purchases, sales, expenses, and credits** list endpoints also include **`totals`** summed over the filtered result set (see each section in [docs/FRONTEND_API.md](docs/FRONTEND_API.md)).
+1. **List responses** use `{ data, meta: { page, limit, total, totalPages } }` on purchases, sales, inventory, credits, expenses, transfers, suppliers, customers, inquiries, and bank transactions. **Inventory, purchases, sales, expenses, and credits** list endpoints also include **`totals`** summed over the filtered result set (see each section in [docs/FRONTEND_API.md](docs/FRONTEND_API.md)).
 2. **CASH and BANK** payments require `bankAccountId` (use the seeded **Cash** account for cash sales/purchases).
 3. **PATCH** `/purchases/:id` and `/sales/:id` accept the same fields as create (partial). Line changes reconcile stock and ledger; blocked after credit payments except `notes`.
 4. **DELETE** on purchases/sales **voids** the document (does not hard-delete).
@@ -89,6 +90,7 @@ See **[docs/FRONTEND_API.md](docs/FRONTEND_API.md)** for the full REST contract.
 9. **Inventory edit:** `PATCH /inventory/:id` updates item name (`description`), `sku`, `unit`, `purchasePrice`, `reorderPoint` — **not quantity**. Change stock via `POST /inventory/adjustments` (`inventory.adjust`) with reason (`DAMAGE`, `LOSS`, `FOUND`, `COUNT`, `OPENING`, `RETURN`, `OTHER`) and direction `in`/`out`. List history at `GET /inventory/adjustments`.
 10. **Bank transactions** include `direction` (`in` \| `out`). `amount` is always positive — use `direction` for UI sign. Filter with `?direction=in` or `?direction=out`.
 11. **Manufacturing:** define BOMs at `/boms`, then run `/production-orders` (`release` → `issue` → `complete`). Items may set `itemType` (`RAW` \| `SEMI` \| `FINISHED` \| `OTHER`). Permissions: `bom.*`, `production.*`.
+12. **Customer inquiries:** public form → `POST /public/inquiries` (no auth); staff CRM → `/inquiries` with `inquiries.read` / `inquiries.write`. See [docs/README.md](docs/README.md#customer-inquiries).
 
 ### Report examples
 
