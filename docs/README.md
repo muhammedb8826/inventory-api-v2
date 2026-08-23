@@ -128,11 +128,15 @@ Content-Type: application/json
   "email": "sara@example.com",
   "subject": "Custom dining table",
   "message": "Need a quote for an 8-seater",
-  "itemId": "optional-catalog-uuid"
+  "lines": [
+    { "itemId": "uuid", "quantity": 1, "notes": "Oak finish" },
+    { "itemId": "uuid", "quantity": 6 }
+  ]
 }
 ```
 
 - Require at least **phone or email**.
+- Optional `lines` for multiple catalog items (or legacy single `itemId`).
 - Response: `{ "id", "status": "NEW", "message": "Inquiry submitted successfully" }`.
 - Ensure the site origin is listed in backend `CORS_ORIGIN`.
 

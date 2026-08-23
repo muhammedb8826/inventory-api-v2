@@ -26,6 +26,7 @@ export { BomLine } from './bom-line.entity';
 export { ProductionOrder } from './production-order.entity';
 export { ProductionOrderLine } from './production-order-line.entity';
 export { CustomerInquiry } from './customer-inquiry.entity';
+export { CustomerInquiryLine } from './customer-inquiry-line.entity';
 
 import { Permission } from './permission.entity';
 import { Role } from './role.entity';
@@ -55,6 +56,7 @@ import { BomLine } from './bom-line.entity';
 import { ProductionOrder } from './production-order.entity';
 import { ProductionOrderLine } from './production-order-line.entity';
 import { CustomerInquiry } from './customer-inquiry.entity';
+import { CustomerInquiryLine } from './customer-inquiry-line.entity';
 
 export const entities = [
   Permission,
@@ -85,4 +87,5 @@ export const entities = [
   ProductionOrder,
   ProductionOrderLine,
   CustomerInquiry,
+  CustomerInquiryLine,
 ];

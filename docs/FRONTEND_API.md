@@ -196,7 +196,7 @@ All report endpoints require `reports.read`. Optional query filters on date-base
 | `/inventory` | `locationId`, `search` (item description, SKU) |
 | `/inventory/adjustments` | `locationId`, `itemId`, `direction` (`in` \| `out`), `reason`, `search` |
 | `/suppliers`, `/customers` | `search` (name, email, phone) |
-| `/inquiries` | `search` (name, email, phone, subject, message), `status`, `source`, `priority`, `customerId`, `assignedToUserId`, `itemId` |
+| `/inquiries` | `search` (name, email, phone, subject, message), `status`, `source`, `priority`, `customerId`, `assignedToUserId`, `itemId` (any line) |
 | `/purchases` | `includeVoided`, `supplierId`, `locationId`, `paymentMethod`, `search` (notes, supplier name) |
 | `/sales` | `includeVoided`, `soldByUserId`, `customerId`, `locationId`, `paymentMethod`, `search` (notes, customer name) |
 | `/expenses` | `categoryId`, `bankAccountId`, `search` (description, category name) |
@@ -608,6 +608,8 @@ Body fields: `name`, `phone`, `email`, `address`, `isActive` (PATCH).
 
 Track leads / product questions from the website (**public**) and from staff (**internal**).
 
+Interested catalog products are stored as **`lines`** (zero or many). Legacy single `itemId` is still accepted on create/update and becomes one line.
+
 ### Public (no auth)
 
 | Method | Path | Description |
@@ -623,7 +625,8 @@ Track leads / product questions from the website (**public**) and from staff (**
 | `message` | yes | |
 | `phone` | one of phone/email | |
 | `email` | one of phone/email | |
-| `itemId` | no | Optional catalog item interest |
+| `lines` | no | Array of `{ itemId, quantity?, notes? }` |
+| `itemId` | no | Legacy shorthand for a single line |
 
 **Response** (`201`)
 
@@ -647,11 +650,11 @@ CORS must allow the marketing/site origin via `CORS_ORIGIN`.
 | PATCH | `/inquiries/:id` | `inquiries.write` |
 | DELETE | `/inquiries/:id` | `inquiries.write` |
 
-**List query:** `page`, `limit`, `from`, `to`, `search` (name, email, phone, subject, message), `status`, `source` (`PUBLIC` \| `INTERNAL`), `priority`, `customerId`, `assignedToUserId`, `itemId`.
+**List query:** `page`, `limit`, `from`, `to`, `search` (name, email, phone, subject, message), `status`, `source` (`PUBLIC` \| `INTERNAL`), `priority`, `customerId`, `assignedToUserId`, `itemId` (matches any line).
 
-**Create body (internal):** same contact fields as public, plus optional `priority`, `customerId`, `assignedToUserId`, `internalNotes`, `followUpAt`. Source is always `INTERNAL`; `createdById` is the logged-in user.
+**Create body (internal):** same contact fields as public, plus optional `priority`, `customerId`, `assignedToUserId`, `internalNotes`, `followUpAt`, `lines` (or legacy `itemId`). Source is always `INTERNAL`; `createdById` is the logged-in user.
 
-**PATCH body:** any of `contactName`, `phone`, `email`, `subject`, `message`, `status`, `priority`, `customerId`, `itemId`, `assignedToUserId`, `internalNotes`, `followUpAt`, `convertedSaleId`. Setting `convertedSaleId` auto-sets `status` to `CONVERTED` if status is omitted.
+**PATCH body:** any of `contactName`, `phone`, `email`, `subject`, `message`, `status`, `priority`, `customerId`, `lines`, `itemId` (legacy), `assignedToUserId`, `internalNotes`, `followUpAt`, `convertedSaleId`. Sending `lines` **replaces** all interest lines. Setting `convertedSaleId` auto-sets `status` to `CONVERTED` if status is omitted.
 
 **DELETE** soft-cancels (`status = CANCELLED`). Converted inquiries cannot be deleted — set `CLOSED` instead.
 
@@ -663,20 +666,51 @@ CORS must allow the marketing/site origin via `CORS_ORIGIN`.
   "contactName": "Sara Bekele",
   "phone": "0911234567",
   "email": "sara@example.com",
-  "subject": "Custom dining table",
-  "message": "Need quote for 8-seater oak table",
+  "subject": "Dining set",
+  "message": "Need quote for table + 6 chairs",
   "status": "NEW",
   "priority": "NORMAL",
   "source": "PUBLIC",
   "customerId": null,
-  "itemId": null,
   "assignedToUserId": null,
   "createdById": null,
   "internalNotes": null,
   "followUpAt": null,
   "convertedSaleId": null,
+  "lines": [
+    {
+      "id": "uuid",
+      "itemId": "uuid",
+      "quantity": "1.000",
+      "notes": "Oak finish",
+      "item": { "id": "uuid", "description": "Dining table", "sku": "DT-01" }
+    },
+    {
+      "id": "uuid",
+      "itemId": "uuid",
+      "quantity": "6.000",
+      "notes": null,
+      "item": { "id": "uuid", "description": "Dining chair", "sku": "DC-01" }
+    }
+  ],
   "createdAt": "2026-07-24T10:00:00.000Z",
   "updatedAt": "2026-07-24T10:00:00.000Z"
+}
+```
+
+**Create example with lines**
+
+```json
+{
+  "contactName": "Sara Bekele",
+  "phone": "0911234567",
+  "subject": "Dining set",
+  "message": "Need quote",
+  "priority": "URGENT",
+  "lines": [
+    { "itemId": "uuid", "quantity": 1, "notes": "Oak" },
+    { "itemId": "uuid", "quantity": 6 }
+  ]
 }
 ```
 
