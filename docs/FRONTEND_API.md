@@ -141,7 +141,7 @@ type TransferStatus = 'PENDING' | 'COMPLETED' | 'CANCELLED';
 type CreditStatus = 'OPEN' | 'PARTIAL' | 'PAID';
 type InquirySource = 'PUBLIC' | 'INTERNAL';
 type InquiryStatus = 'NEW' | 'IN_PROGRESS' | 'QUOTED' | 'CONVERTED' | 'CLOSED' | 'CANCELLED';
-type InquiryPriority = 'LOW' | 'NORMAL' | 'HIGH';
+type InquiryPriority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
 ```
 
 ---

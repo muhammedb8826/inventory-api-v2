@@ -5,6 +5,7 @@ import {
   Index,
   JoinColumn,
   ManyToOne,
+  OneToMany,
   UpdateDateColumn,
 } from 'typeorm';
 import {
@@ -13,7 +14,7 @@ import {
   InquiryStatus,
 } from '../../common/enums';
 import { Customer } from './customer.entity';
-import { Item } from './item.entity';
+import { CustomerInquiryLine } from './customer-inquiry-line.entity';
 import { Sale } from './sale.entity';
 import { User } from './user.entity';
 import { UuidBaseEntity } from './uuid-base.entity';
@@ -57,9 +58,6 @@ export class CustomerInquiry extends UuidBaseEntity {
   @Column({ name: 'customer_id', type: 'uuid', nullable: true })
   customerId: string | null;
 
-  @Column({ name: 'item_id', type: 'uuid', nullable: true })
-  itemId: string | null;
-
   @Column({ name: 'assigned_to_user_id', type: 'uuid', nullable: true })
   assignedToUserId: string | null;
 
@@ -85,9 +83,10 @@ export class CustomerInquiry extends UuidBaseEntity {
   @JoinColumn({ name: 'customer_id' })
   customer: Customer | null;
 
-  @ManyToOne(() => Item, { nullable: true, onDelete: 'SET NULL' })
-  @JoinColumn({ name: 'item_id' })
-  item: Item | null;
+  @OneToMany(() => CustomerInquiryLine, (line) => line.inquiry, {
+    cascade: true,
+  })
+  lines: CustomerInquiryLine[];
 
   @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'assigned_to_user_id' })

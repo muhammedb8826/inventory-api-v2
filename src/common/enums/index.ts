@@ -125,4 +125,5 @@ export enum InquiryPriority {
   LOW = 'LOW',
   NORMAL = 'NORMAL',
   HIGH = 'HIGH',
+  URGENT = 'URGENT',
 }
