@@ -492,6 +492,8 @@ Item create/update also accepts `itemType` for manufacturing classification.
 
 `quantity` is per **1 finished unit**. `scrapPercent` increases required material (e.g. 2% scrap).
 
+**PATCH** accepts the same fields as create (partial): `finishedItemId`, `name`, `version`, `notes`, `isActive`, `lines`. Sending `lines` replaces all component lines. The finished item cannot appear as its own component.
+
 List filters: `finishedItemId`, `isActive` (`true`\|`false`), `search`, `page`, `limit`.
 
 ---

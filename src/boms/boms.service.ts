@@ -94,6 +94,11 @@ export class BomsService {
   async update(id: string, dto: UpdateBomDto) {
     const bom = await this.findOne(id);
 
+    if (dto.finishedItemId !== undefined) {
+      await this.assertFinishedItem(dto.finishedItemId);
+      bom.finishedItemId = dto.finishedItemId;
+    }
+
     if (dto.name !== undefined) bom.name = dto.name.trim();
     if (dto.version !== undefined) bom.version = dto.version?.trim() || null;
     if (dto.notes !== undefined) bom.notes = dto.notes?.trim() || null;
@@ -103,7 +108,7 @@ export class BomsService {
     await this.bomRepo.save(header);
 
     if (dto.lines) {
-      await this.assertLines(bom.finishedItemId, dto.lines);
+      await this.assertLines(bom.finishedItemId, dto.lines as BomLineDto[]);
       const lineRepo = this.bomRepo.manager.getRepository(BomLine);
       await lineRepo.delete({ bomId: id });
       await lineRepo.save(

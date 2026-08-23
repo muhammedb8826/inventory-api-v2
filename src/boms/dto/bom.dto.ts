@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  Allow,
   ArrayMinSize,
   IsArray,
   IsBoolean,
@@ -32,6 +33,21 @@ export class BomLineDto {
   scrapPercent?: number;
 }
 
+/** PATCH lines — ignores read-only fields from GET responses. */
+export class UpdateBomLineDto extends BomLineDto {
+  @Allow()
+  id?: string;
+
+  @Allow()
+  bomId?: string;
+
+  @Allow()
+  componentItem?: unknown;
+
+  @Allow()
+  bom?: unknown;
+}
+
 export class CreateBomDto {
   @IsUUID()
   finishedItemId: string;
@@ -58,6 +74,22 @@ export class CreateBomDto {
 }
 
 export class UpdateBomDto {
+  @Allow()
+  id?: string;
+
+  @IsOptional()
+  @IsUUID()
+  finishedItemId?: string;
+
+  @Allow()
+  finishedItem?: unknown;
+
+  @Allow()
+  createdAt?: unknown;
+
+  @Allow()
+  updatedAt?: unknown;
+
   @IsOptional()
   @IsString()
   @MinLength(1)
@@ -81,8 +113,8 @@ export class UpdateBomDto {
   @IsArray()
   @ArrayMinSize(1)
   @ValidateNested({ each: true })
-  @Type(() => BomLineDto)
-  lines?: BomLineDto[];
+  @Type(() => UpdateBomLineDto)
+  lines?: UpdateBomLineDto[];
 }
 
 export class BomListQueryDto extends ListQueryDto {
