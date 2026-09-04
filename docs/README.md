@@ -105,6 +105,8 @@ Amounts are decimal strings in ETB (e.g. `"1250.00"`). Use `currency` from `/hea
 | `/locations`, `/suppliers`, `/customers` | master data CRUD |
 | `/inquiries` | `/inquiries` (staff) |
 | Contact / landing form | `POST /public/inquiries` (no auth) |
+| Public site branding | `GET /public/branding` |
+| `/settings/branding` | Admin branding: `GET/PATCH /settings/branding`, hero upload/delete |
 | `/users`, `/roles` | admin CRUD |
 | Notification bell | `/notifications` |
 

@@ -122,13 +122,98 @@ Change password. Requires the current password. All active refresh tokens are re
 | Role | Typical access |
 |------|----------------|
 | Admin | All permissions |
-| Sales Representative | Sales, customers, inquiries, bank, credits, dashboard |
+| Sales Representative | Sales, customers, **inquiries**, bank, credits, dashboard |
 | Purchaser | Purchases, suppliers, credits |
-| Stock Keeper | Inventory, stock transfers |
+| Stock Keeper | Inventory, BOM, production, stock transfers |
 
 Permission `sales.negative_stock` is required to set `allowNegativeStock: true` on sales.
 
 Permission `sales.on_behalf` is required to set `soldByUserId` to someone other than the logged-in user (Admin has this after seed).
+
+Permission `settings.read` / `settings.write` control branding (app name + hero image). Admin has these after seed.
+
+---
+
+## Branding (site name & hero image)
+
+Admins configure the public website **app name** and **hero image**. Values are stored server-side (not hardcoded in the frontend). Seeded defaults: `appName = "Stock"`, no custom hero (`heroImageUrl = null` → frontend uses its bundled default).
+
+### Permissions
+
+| Code | Use |
+|------|-----|
+| `settings.read` | View branding in admin |
+| `settings.write` | Update text fields and upload/clear hero image |
+
+Admin role receives both after seed.
+
+### Public (no auth)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/public/branding` | Current branding for the customer site |
+
+**Response `200`**
+
+```json
+{
+  "appName": "Noble Store",
+  "heroImageUrl": "http://localhost:3001/uploads/branding/hero-abc.webp",
+  "headline": "Tell us what you need. We will send a clear quote.",
+  "supportingText": "Share a product question or custom request — our team replies by phone or email.",
+  "updatedAt": "2026-09-03T20:00:00.000Z"
+}
+```
+
+| Field | Notes |
+|-------|--------|
+| `appName` | Display name (required, non-empty; max 80 chars) |
+| `heroImageUrl` | Absolute URL **or** path under the API origin (e.g. `/uploads/branding/...`). `null` = no custom upload |
+| `headline` | Optional landing headline (max 160) |
+| `supportingText` | Optional landing supporting sentence (max 400) |
+
+Uploaded files are served at `/uploads/*` (outside the `/api` prefix). Prefer returning an **absolute** `heroImageUrl` so CORS/CDN hosts work. Optional env `PUBLIC_BASE_URL` overrides the request host when building absolute URLs.
+
+### Admin (JWT)
+
+| Method | Path | Permission |
+|--------|------|------------|
+| GET | `/settings/branding` | `settings.read` |
+| PATCH | `/settings/branding` | `settings.write` |
+| POST | `/settings/branding/hero-image` | `settings.write` |
+| DELETE | `/settings/branding/hero-image` | `settings.write` |
+
+**PATCH body** (all optional)
+
+```json
+{
+  "appName": "Noble Store",
+  "headline": "Tell us what you need.",
+  "supportingText": "We reply within one business day."
+}
+```
+
+- Empty string for `headline` / `supportingText` clears to `null` (frontend treats blank as default copy).
+- Does **not** change the image — use the upload/delete endpoints.
+- Response: same shape as `GET /public/branding`.
+
+**POST** `/settings/branding/hero-image` — `multipart/form-data`
+
+| Field | Required | Notes |
+|-------|----------|-------|
+| `file` | yes | Image file: `image/jpeg`, `image/png`, `image/webp`, or `image/gif`; max **5 MB** |
+
+Replace any previous hero file. Response: updated branding object (with new `heroImageUrl`).
+
+**DELETE** `/settings/branding/hero-image` — removes the stored file and sets `heroImageUrl` to `null`. Response: updated branding object.
+
+### Frontend behaviour
+
+| Surface | Uses |
+|---------|------|
+| `/`, header, footer | `appName`, `heroImageUrl`, `headline`, `supportingText` via `GET /public/branding` |
+| `/login`, sidebar | `appName` |
+| `/settings/branding` | Admin form: PATCH text + POST/DELETE image |
 
 ---
 
@@ -1398,5 +1483,6 @@ Open [http://localhost:3000](http://localhost:3000).
 | `/profit-loss` | `/profit-loss/*` |
 | `/locations`, `/suppliers`, `/customers` | master data + PATCH |
 | `/inquiries`, `/public/inquiries` | customer inquiries (staff + public submit) |
+| `/settings/branding` | `GET/PATCH /settings/branding`, `POST/DELETE /settings/branding/hero-image`; public `GET /public/branding` |
 | `/users`, `/roles` | admin CRUD |
 | `/notifications` | in-app notification bell |

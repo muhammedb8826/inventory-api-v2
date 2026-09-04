@@ -27,6 +27,7 @@ export { ProductionOrder } from './production-order.entity';
 export { ProductionOrderLine } from './production-order-line.entity';
 export { CustomerInquiry } from './customer-inquiry.entity';
 export { CustomerInquiryLine } from './customer-inquiry-line.entity';
+export { SiteBranding } from './site-branding.entity';
 
 import { Permission } from './permission.entity';
 import { Role } from './role.entity';
@@ -57,6 +58,7 @@ import { ProductionOrder } from './production-order.entity';
 import { ProductionOrderLine } from './production-order-line.entity';
 import { CustomerInquiry } from './customer-inquiry.entity';
 import { CustomerInquiryLine } from './customer-inquiry-line.entity';
+import { SiteBranding } from './site-branding.entity';
 
 export const entities = [
   Permission,
@@ -88,4 +90,5 @@ export const entities = [
   ProductionOrderLine,
   CustomerInquiry,
   CustomerInquiryLine,
+  SiteBranding,
 ];

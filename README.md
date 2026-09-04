@@ -39,6 +39,7 @@ Copy `.env.example` to `.env` and configure:
 | `JWT_AT_SECRET` / `JWT_RT_SECRET` | Change from placeholders in production |
 | `DB_SEED` | `true` on first run to seed roles, admin, warehouse, bank accounts |
 | `CORS_ORIGIN` | Comma-separated frontend URLs (e.g. `https://noblestore.net`); `http://localhost:3000` is always allowed |
+| `PUBLIC_BASE_URL` | Optional absolute API origin for branding image URLs (no trailing slash) |
 | `CURRENCY` / `CURRENCY_SYMBOL` | Default `ETB` / `Br` (display only; amounts are ETB) |
 
 ### 3. Database
