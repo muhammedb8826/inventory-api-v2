@@ -9,9 +9,11 @@ import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { randomUUID } from 'crypto';
+import JSZip from 'jszip';
 import * as XLSX from 'xlsx';
 import { DataSource, Not, Repository } from 'typeorm';
 import {
+  ItemType,
   StockAdjustmentDirection,
   StockAdjustmentReason,
 } from '../common/enums';
@@ -49,6 +51,15 @@ const ITEM_IMAGE_MIME: Record<string, string> = {
   'image/webp': '.webp',
   'image/gif': '.gif',
 };
+
+const ITEM_IMAGE_EXT_MIME: Record<string, string> = {
+  jpeg: 'image/jpeg',
+  jpg: 'image/jpeg',
+  png: 'image/png',
+  webp: 'image/webp',
+  gif: 'image/gif',
+};
+
 const ITEM_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 
 @Injectable()
@@ -481,11 +492,15 @@ export class InventoryService {
     const workbook = XLSX.read(file.buffer, { type: 'buffer' });
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet);
+    const embeddedByExcelRow = await this.loadEmbeddedImagesByExcelRow(
+      file.buffer,
+    );
 
     const results: { row: number; status: string; id?: string }[] = [];
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
+      const excelRow = i + 2;
       const description = String(
         row.description ?? row.Description ?? row.item ?? '',
       ).trim();
@@ -506,9 +521,20 @@ export class InventoryService {
         reorderPointRaw !== undefined && reorderPointRaw !== ''
           ? parseFloat(String(reorderPointRaw))
           : undefined;
+      const imageUrlRaw = String(
+        row.imageUrl ?? row.image_url ?? row.ImageUrl ?? '',
+      ).trim();
+      const itemTypeRaw = String(
+        row.itemType ?? row.item_type ?? row.ItemType ?? '',
+      )
+        .trim()
+        .toUpperCase();
+      const itemType = Object.values(ItemType).includes(itemTypeRaw as ItemType)
+        ? (itemTypeRaw as ItemType)
+        : undefined;
 
       if (!description || Number.isNaN(quantity)) {
-        results.push({ row: i + 2, status: 'skipped: invalid row' });
+        results.push({ row: excelRow, status: 'skipped: invalid row' });
         continue;
       }
 
@@ -519,28 +545,289 @@ export class InventoryService {
           quantity,
           purchasePrice: Number.isNaN(purchasePrice) ? 0 : purchasePrice,
           sku: row.sku ? String(row.sku) : undefined,
+          itemType,
           reorderPoint:
             reorderPoint !== undefined && !Number.isNaN(reorderPoint)
               ? reorderPoint
               : undefined,
         });
-        results.push({ row: i + 2, status: 'imported', id: saved.id });
+
+        let status = 'imported';
+        const embedded = embeddedByExcelRow.get(excelRow);
+        if (embedded) {
+          try {
+            await this.uploadItemImage(saved.id, embedded);
+            status = 'imported+image';
+          } catch (imgErr) {
+            status = `imported (image failed: ${exceptionMessage(imgErr)})`;
+          }
+        } else if (imageUrlRaw) {
+          try {
+            await this.attachImageFromUrl(saved.id, imageUrlRaw);
+            status = 'imported+image';
+          } catch (imgErr) {
+            status = `imported (image failed: ${exceptionMessage(imgErr)})`;
+          }
+        }
+
+        results.push({ row: excelRow, status, id: saved.id });
       } catch (e) {
         results.push({
-          row: i + 2,
-          status: `error: ${e instanceof Error ? e.message : 'unknown'}`,
+          row: excelRow,
+          status: `error: ${exceptionMessage(e)}`,
         });
       }
     }
 
     return {
-      imported: results.filter((r) => r.status === 'imported').length,
+      imported: results.filter((r) => r.status.startsWith('imported')).length,
       results,
     };
+  }
+
+  /**
+   * Map floating pictures in the first sheet to Excel row numbers (1-based).
+   * Header is row 1; first data row is 2. Only .xlsx is supported.
+   * Handles both standard pictures (xdr:pic) and shape image fills (xdr:sp + blipFill),
+   * which Excel often writes when pasting photos into cells.
+   */
+  private async loadEmbeddedImagesByExcelRow(
+    buffer: Buffer,
+  ): Promise<Map<number, UploadedImageFile>> {
+    const byRow = new Map<number, UploadedImageFile>();
+    try {
+      const zip = await JSZip.loadAsync(buffer);
+      const sheetPath = await resolveFirstWorksheetPath(zip);
+      if (!sheetPath) return byRow;
+
+      const sheetRelsPath = worksheetRelsPath(sheetPath);
+      const sheetRelsXml = await zip.file(sheetRelsPath)?.async('string');
+      if (!sheetRelsXml) return byRow;
+
+      const drawingRel = [...sheetRelsXml.matchAll(REL_HREF_RE)].find((m) =>
+        m[2].includes('/relationships/drawing'),
+      );
+      if (!drawingRel) return byRow;
+
+      const drawingPath = resolveZipPath(sheetPath, drawingRel[3]);
+      const drawingXml = await zip.file(drawingPath)?.async('string');
+      const drawingRelsXml = await zip
+        .file(relsPathFor(drawingPath))
+        ?.async('string');
+      if (!drawingXml || !drawingRelsXml) return byRow;
+
+      const rIdToMedia = new Map<string, string>();
+      for (const m of drawingRelsXml.matchAll(REL_HREF_RE)) {
+        if (!m[2].includes('/relationships/image')) continue;
+        rIdToMedia.set(m[1], resolveZipPath(drawingPath, m[3]));
+      }
+
+      for (const anchor of drawingXml.matchAll(DRAWING_ANCHOR_RE)) {
+        const block = anchor[0];
+        const rowMatch = block.match(/<xdr:row>(\d+)<\/xdr:row>/);
+        const embedMatch = block.match(/r:embed="([^"]+)"/);
+        if (!rowMatch || !embedMatch) continue;
+
+        const excelRow = Number(rowMatch[1]) + 1;
+        if (!Number.isFinite(excelRow) || excelRow < 2 || byRow.has(excelRow)) {
+          continue;
+        }
+
+        const mediaPath = rIdToMedia.get(embedMatch[1]);
+        if (!mediaPath) continue;
+
+        const ext = mediaPath.split('.').pop()?.toLowerCase() ?? '';
+        const mimetype = ITEM_IMAGE_EXT_MIME[ext];
+        if (!mimetype) continue;
+
+        const imageBuffer = Buffer.from(
+          await zip.file(mediaPath)!.async('nodebuffer'),
+        );
+        if (imageBuffer.byteLength > ITEM_IMAGE_MAX_BYTES) continue;
+
+        byRow.set(excelRow, {
+          buffer: imageBuffer,
+          mimetype,
+          size: imageBuffer.byteLength,
+        });
+      }
+    } catch {
+      // .xls / .csv / malformed zip — ignore embedded images
+    }
+    return byRow;
+  }
+
+  /** Download a public image URL and attach it to the stock row's catalog item. */
+  private async attachImageFromUrl(stockId: string, imageUrl: string) {
+    let parsed: URL;
+    try {
+      parsed = new URL(imageUrl);
+    } catch {
+      throw new BadRequestException('Invalid image URL');
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new BadRequestException('imageUrl must be http or https');
+    }
+    if (isBlockedImageHost(parsed.hostname)) {
+      throw new BadRequestException('imageUrl host is not allowed');
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+    let response: Response;
+    try {
+      response = await fetch(parsed.toString(), {
+        signal: controller.signal,
+        redirect: 'follow',
+        headers: { Accept: 'image/*' },
+      });
+    } catch {
+      throw new BadRequestException('Failed to download image');
+    } finally {
+      clearTimeout(timer);
+    }
+
+    if (!response.ok) {
+      throw new BadRequestException(
+        `Image download failed (${response.status})`,
+      );
+    }
+
+    const contentType = (response.headers.get('content-type') ?? '')
+      .split(';')[0]
+      .trim()
+      .toLowerCase();
+    if (!ITEM_IMAGE_MIME[contentType]) {
+      throw new BadRequestException(
+        'Remote file must be JPEG, PNG, WebP, or GIF',
+      );
+    }
+
+    const contentLength = Number(response.headers.get('content-length') ?? 0);
+    if (contentLength > ITEM_IMAGE_MAX_BYTES) {
+      throw new BadRequestException('Image must be 5 MB or smaller');
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    if (arrayBuffer.byteLength > ITEM_IMAGE_MAX_BYTES) {
+      throw new BadRequestException('Image must be 5 MB or smaller');
+    }
+
+    await this.uploadItemImage(stockId, {
+      buffer: Buffer.from(arrayBuffer),
+      mimetype: contentType,
+      size: arrayBuffer.byteLength,
+    });
   }
 
   private async ensureLocation(locationId: string) {
     const loc = await this.locationRepo.findOne({ where: { id: locationId } });
     if (!loc) throw new BadRequestException('Location not found');
   }
+}
+
+function exceptionMessage(err: unknown): string {
+  if (err instanceof BadRequestException) {
+    const res = err.getResponse();
+    if (typeof res === 'string') return res;
+    if (typeof res === 'object' && res && 'message' in res) {
+      const message = (res as { message: string | string[] }).message;
+      return Array.isArray(message) ? message.join(', ') : String(message);
+    }
+  }
+  if (err instanceof Error) return err.message;
+  return 'unknown';
+}
+
+function isBlockedImageHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (
+    host === 'localhost' ||
+    host === 'metadata.google.internal' ||
+    host.endsWith('.localhost') ||
+    host.endsWith('.local') ||
+    host.endsWith('.internal')
+  ) {
+    return true;
+  }
+
+  if (host.includes(':')) {
+    // IPv6: block loopback / link-local / ULA
+    return (
+      host === '::1' ||
+      host.startsWith('fc') ||
+      host.startsWith('fd') ||
+      host.startsWith('fe80')
+    );
+  }
+
+  const parts = host.split('.').map((p) => Number(p));
+  if (parts.length === 4 && parts.every((n) => Number.isInteger(n) && n >= 0 && n <= 255)) {
+    const [a, b] = parts;
+    if (a === 10) return true;
+    if (a === 127) return true;
+    if (a === 0) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+  }
+
+  return false;
+}
+
+const REL_HREF_RE =
+  /<Relationship[^>]*\bId="([^"]+)"[^>]*\bType="([^"]+)"[^>]*\bTarget="([^"]+)"[^>]*\/>/g;
+const DRAWING_ANCHOR_RE =
+  /<xdr:(?:twoCellAnchor|oneCellAnchor)[^>]*>[\s\S]*?<\/xdr:(?:twoCellAnchor|oneCellAnchor)>/g;
+
+async function resolveFirstWorksheetPath(
+  zip: JSZip,
+): Promise<string | undefined> {
+  const workbookXml = await zip.file('xl/workbook.xml')?.async('string');
+  const workbookRels = await zip
+    .file('xl/_rels/workbook.xml.rels')
+    ?.async('string');
+  if (!workbookXml || !workbookRels) {
+    return zip.file('xl/worksheets/sheet1.xml')
+      ? 'xl/worksheets/sheet1.xml'
+      : undefined;
+  }
+
+  const firstSheet = workbookXml.match(
+    /<sheet[^>]*\br:id="([^"]+)"[^>]*\/?>/,
+  );
+  if (!firstSheet) {
+    return zip.file('xl/worksheets/sheet1.xml')
+      ? 'xl/worksheets/sheet1.xml'
+      : undefined;
+  }
+
+  for (const m of workbookRels.matchAll(REL_HREF_RE)) {
+    if (m[1] === firstSheet[1]) {
+      return resolveZipPath('xl/workbook.xml', m[3]);
+    }
+  }
+  return undefined;
+}
+
+function worksheetRelsPath(sheetPath: string): string {
+  return relsPathFor(sheetPath);
+}
+
+function relsPathFor(partPath: string): string {
+  const parts = partPath.split('/');
+  const file = parts.pop()!;
+  return `${parts.join('/')}/_rels/${file}.rels`;
+}
+
+function resolveZipPath(fromPath: string, target: string): string {
+  if (target.startsWith('/')) return target.replace(/^\//, '');
+  const baseParts = fromPath.split('/');
+  baseParts.pop();
+  for (const part of target.split('/')) {
+    if (part === '.' || part === '') continue;
+    if (part === '..') baseParts.pop();
+    else baseParts.push(part);
+  }
+  return baseParts.join('/');
 }

@@ -564,9 +564,9 @@ Rules:
 
 **Excel import** — `multipart/form-data`, field name `file`.
 
-Expected columns (case-insensitive): `description`, `quantity`, `purchasePrice` / `purchase_price` / `price`, optional `sku`, optional `reorderPoint` / `reorder_point`, optional `itemType` (`RAW` \| `SEMI` \| `FINISHED` \| `OTHER`).
+Expected columns (case-insensitive): `description`, `quantity`, `purchasePrice` / `purchase_price` / `price`, optional `sku`, optional `reorderPoint` / `reorder_point`, optional `itemType` (`RAW` \| `SEMI` \| `FINISHED` \| `OTHER`), optional `imageUrl` / `image_url` (public `http`/`https` URL).
 
-Item create/update also accepts `itemType` for manufacturing classification.
+**Images:** Prefer placing a picture on the data row in the `.xlsx` (Insert → Pictures, or paste into the sheet). The server reads floating drawings — including standard pictures and shape image fills — and maps them to the top-left Excel row (JPEG/PNG/GIF ≤ 5 MB). If a row has no embedded picture, `imageUrl` is used as a fallback. Row import succeeds even if the image fails — status notes the error. `.xls` / `.csv` do not support embedded pictures.
 
 ---
 
