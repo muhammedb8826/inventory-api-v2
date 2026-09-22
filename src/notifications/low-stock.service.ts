@@ -184,6 +184,8 @@ export class LowStockService {
             sku: stock.item.sku,
             description: stock.item.description,
             unit: stock.item.unit,
+            itemType: stock.item.itemType,
+            imagePath: stock.item.imagePath,
           }
         : null,
       location: stock.location

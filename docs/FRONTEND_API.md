@@ -407,6 +407,8 @@ All report endpoints require `reports.read`. Optional query filters on date-base
 | GET | `/inventory/:id` | `inventory.read` |
 | POST | `/inventory` | `inventory.write` |
 | PATCH | `/inventory/:id` | `inventory.write` |
+| POST | `/inventory/:id/image` | `inventory.write` |
+| DELETE | `/inventory/:id/image` | `inventory.write` |
 | DELETE | `/inventory/:id` | `inventory.delete` |
 | POST | `/inventory/import?locationId=` | `inventory.import` |
 
@@ -420,10 +422,28 @@ All report endpoints require `reports.read`. Optional query filters on date-base
   "quantity": "100.000",
   "purchasePrice": "25.50",
   "reorderPoint": "20.000",
-  "item": { "id": "uuid", "sku": "SKU1", "description": "Widget", "unit": "pcs" },
+  "item": {
+    "id": "uuid",
+    "sku": "SKU1",
+    "description": "Widget",
+    "unit": "pcs",
+    "imagePath": "/uploads/items/item-….webp",
+    "imageUrl": "http://localhost:3001/uploads/items/item-….webp"
+  },
   "location": { "id": "uuid", "name": "Main Warehouse", "type": "WAREHOUSE" }
 }
 ```
+
+`item.imageUrl` is absolute when `PUBLIC_BASE_URL` or the request host is available; otherwise a `/uploads/...` path. `null` when no image.
+
+**Item image** (`multipart/form-data`, field `file`)
+
+| Method | Path | Notes |
+|--------|------|-------|
+| POST | `/inventory/:id/image` | JPEG/PNG/WebP/GIF, max 5 MB. Replaces previous image. `:id` is the **stock row** id (updates the catalog item). |
+| DELETE | `/inventory/:id/image` | Clears image and deletes the file. |
+
+Response: full stock record (same as `GET /inventory/:id`).
 
 **Low stock list** — items where `quantity <= reorderPoint` (when set) or `quantity <= 0`:
 

@@ -29,6 +29,13 @@ export class Item extends UuidBaseEntity {
   })
   itemType: ItemType;
 
+  /** Relative path e.g. `/uploads/items/item-….webp`. */
+  @Column({ name: 'image_path', type: 'varchar', length: 500, nullable: true })
+  imagePath: string | null;
+
+  /** Absolute (or relative) URL for API clients — set in service, not persisted. */
+  imageUrl?: string | null;
+
   @Column({ name: 'is_active', default: true })
   isActive: boolean;
 

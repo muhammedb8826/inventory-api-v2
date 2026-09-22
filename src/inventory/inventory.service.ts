@@ -4,13 +4,21 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'fs';
+import { join } from 'path';
+import { randomUUID } from 'crypto';
 import * as XLSX from 'xlsx';
 import { DataSource, Not, Repository } from 'typeorm';
 import {
   StockAdjustmentDirection,
   StockAdjustmentReason,
 } from '../common/enums';
+import {
+  absoluteMediaUrl,
+  publicBaseFromConfig,
+} from '../common/utils/media-url.util';
 import {
   applyDateRangeToQb,
   applyIlikeSearch,
@@ -30,10 +38,23 @@ import {
   CreateStockAdjustmentDto,
   StockAdjustmentListQueryDto,
 } from './dto/stock-adjustment.dto';
-import type { UploadedExcelFile } from './dto/uploaded-file.interface';
+import type {
+  UploadedExcelFile,
+  UploadedImageFile,
+} from './dto/uploaded-file.interface';
+
+const ITEM_IMAGE_MIME: Record<string, string> = {
+  'image/jpeg': '.jpg',
+  'image/png': '.png',
+  'image/webp': '.webp',
+  'image/gif': '.gif',
+};
+const ITEM_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 
 @Injectable()
 export class InventoryService {
+  private readonly itemUploadDir = join(process.cwd(), 'uploads', 'items');
+
   constructor(
     @InjectRepository(StockLevel)
     private readonly stockRepo: Repository<StockLevel>,
@@ -47,9 +68,45 @@ export class InventoryService {
     private readonly dataSource: DataSource,
     private readonly stockService: StockService,
     private readonly lowStockService: LowStockService,
+    private readonly config: ConfigService,
   ) {}
 
-  async findAll(query: InventoryListQueryDto) {
+  private mediaBase(requestBaseUrl?: string) {
+    return {
+      publicBaseUrl: publicBaseFromConfig(this.config),
+      requestBaseUrl,
+    };
+  }
+
+  private attachItemImageUrl<
+    T extends {
+      item?: {
+        imagePath?: string | null;
+        imageUrl?: string | null;
+      } | null;
+    },
+  >(row: T, requestBaseUrl?: string): T {
+    if (row.item) {
+      row.item.imageUrl = absoluteMediaUrl(
+        row.item.imagePath ?? null,
+        this.mediaBase(requestBaseUrl),
+      );
+    }
+    return row;
+  }
+
+  private attachItemImageUrls<
+    T extends {
+      item?: {
+        imagePath?: string | null;
+        imageUrl?: string | null;
+      } | null;
+    },
+  >(rows: T[], requestBaseUrl?: string): T[] {
+    return rows.map((row) => this.attachItemImageUrl(row, requestBaseUrl));
+  }
+
+  async findAll(query: InventoryListQueryDto, requestBaseUrl?: string) {
     const filteredQb = this.buildInventoryFilterQb(query);
     const [totals, page] = await Promise.all([
       sumFilteredQueryBuilder(filteredQb, [
@@ -74,9 +131,12 @@ export class InventoryService {
       ),
     ]);
 
-    return { ...page, totals };
+    return {
+      ...page,
+      data: this.attachItemImageUrls(page.data, requestBaseUrl),
+      totals,
+    };
   }
-
   private buildInventoryFilterQb(query: InventoryListQueryDto) {
     const qb = this.stockRepo.createQueryBuilder('stock');
 
@@ -96,24 +156,31 @@ export class InventoryService {
     return qb;
   }
 
-  async findLowStock(query: {
-    locationId?: string;
-    page?: number;
-    limit?: number;
-  }) {
-    return this.lowStockService.findAllLowStock(query);
+  async findLowStock(
+    query: {
+      locationId?: string;
+      page?: number;
+      limit?: number;
+    },
+    requestBaseUrl?: string,
+  ) {
+    const page = await this.lowStockService.findAllLowStock(query);
+    return {
+      ...page,
+      data: this.attachItemImageUrls(page.data, requestBaseUrl),
+    };
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, requestBaseUrl?: string) {
     const stock = await this.stockRepo.findOne({
       where: { id },
       relations: { item: true, location: true },
     });
     if (!stock) throw new NotFoundException('Inventory record not found');
-    return stock;
+    return this.attachItemImageUrl(stock, requestBaseUrl);
   }
 
-  async create(dto: CreateInventoryDto) {
+  async create(dto: CreateInventoryDto, requestBaseUrl?: string) {
     await this.ensureLocation(dto.locationId);
     let item = dto.sku
       ? await this.itemRepo.findOne({ where: { sku: dto.sku } })
@@ -141,9 +208,9 @@ export class InventoryService {
         adjusted.reorderPoint = dto.reorderPoint.toFixed(3);
         const saved = await this.stockRepo.save(adjusted);
         await this.lowStockService.evaluateAfterReorderPointChange(saved.id);
-        return saved;
+        return this.findOne(saved.id, requestBaseUrl);
       }
-      return adjusted;
+      return this.findOne(adjusted.id, requestBaseUrl);
     }
 
     const saved = await this.stockRepo.save(
@@ -157,11 +224,15 @@ export class InventoryService {
       }),
     );
     await this.lowStockService.evaluateInitialStock(saved.id);
-    return saved;
+    return this.findOne(saved.id, requestBaseUrl);
   }
 
-  async update(id: string, dto: UpdateInventoryDto) {
-    const stock = await this.findOne(id);
+  async update(
+    id: string,
+    dto: UpdateInventoryDto,
+    requestBaseUrl?: string,
+  ) {
+    const stock = await this.findOne(id, requestBaseUrl);
 
     const itemChanged =
       dto.description !== undefined ||
@@ -213,10 +284,66 @@ export class InventoryService {
       await this.lowStockService.evaluateAfterReorderPointChange(saved.id);
     }
 
-    return saved;
+    return this.findOne(saved.id, requestBaseUrl);
   }
 
-  async findAdjustments(query: StockAdjustmentListQueryDto) {
+  async uploadItemImage(
+    stockId: string,
+    file: UploadedImageFile | undefined,
+    requestBaseUrl?: string,
+  ) {
+    if (!file) throw new BadRequestException('File is required');
+    if (file.size > ITEM_IMAGE_MAX_BYTES) {
+      throw new BadRequestException('Image must be 5 MB or smaller');
+    }
+    const ext = ITEM_IMAGE_MIME[file.mimetype];
+    if (!ext) {
+      throw new BadRequestException(
+        'Image must be JPEG, PNG, WebP, or GIF',
+      );
+    }
+
+    const stock = await this.findOne(stockId, requestBaseUrl);
+    if (!existsSync(this.itemUploadDir)) {
+      mkdirSync(this.itemUploadDir, { recursive: true });
+    }
+
+    this.deleteItemImageFile(stock.item.imagePath);
+
+    const filename = `item-${randomUUID()}${ext}`;
+    writeFileSync(join(this.itemUploadDir, filename), file.buffer);
+    stock.item.imagePath = `/uploads/items/${filename}`;
+    await this.itemRepo.save(stock.item);
+
+    return this.findOne(stockId, requestBaseUrl);
+  }
+
+  async clearItemImage(stockId: string, requestBaseUrl?: string) {
+    const stock = await this.findOne(stockId, requestBaseUrl);
+    this.deleteItemImageFile(stock.item.imagePath);
+    stock.item.imagePath = null;
+    await this.itemRepo.save(stock.item);
+    return this.findOne(stockId, requestBaseUrl);
+  }
+
+  private deleteItemImageFile(storedPath: string | null | undefined) {
+    if (!storedPath) return;
+    const match = storedPath.match(/\/uploads\/items\/([^/]+)$/);
+    if (!match) return;
+    const diskPath = join(this.itemUploadDir, match[1]);
+    if (existsSync(diskPath)) {
+      try {
+        unlinkSync(diskPath);
+      } catch {
+        // ignore missing/locked file
+      }
+    }
+  }
+
+  async findAdjustments(
+    query: StockAdjustmentListQueryDto,
+    requestBaseUrl?: string,
+  ) {
     const qb = this.adjustmentRepo
       .createQueryBuilder('adj')
       .leftJoinAndSelect('adj.item', 'item')
@@ -248,7 +375,11 @@ export class InventoryService {
     ]);
     applyDateRangeToQb(qb, 'adj.created_at', query.from, query.to);
 
-    return paginatedQueryBuilder(qb, query.page, query.limit);
+    const page = await paginatedQueryBuilder(qb, query.page, query.limit);
+    return {
+      ...page,
+      data: this.attachItemImageUrls(page.data, requestBaseUrl),
+    };
   }
 
   async createAdjustment(dto: CreateStockAdjustmentDto, userId?: string) {

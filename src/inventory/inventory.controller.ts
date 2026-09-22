@@ -8,11 +8,13 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   UploadedFile,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { JwtPayload } from '../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
@@ -25,8 +27,26 @@ import {
   CreateStockAdjustmentDto,
   StockAdjustmentListQueryDto,
 } from './dto/stock-adjustment.dto';
-import type { UploadedExcelFile } from './dto/uploaded-file.interface';
+import type {
+  UploadedExcelFile,
+  UploadedImageFile,
+} from './dto/uploaded-file.interface';
 import { InventoryService } from './inventory.service';
+
+type RequestLike = {
+  protocol: string;
+  headers: Record<string, string | string[] | undefined>;
+  get: (name: string) => string | undefined;
+};
+
+function requestBaseUrl(req: RequestLike) {
+  const proto =
+    (typeof req.headers['x-forwarded-proto'] === 'string'
+      ? req.headers['x-forwarded-proto']
+      : undefined) || req.protocol;
+  const host = req.get('host');
+  return host ? `${proto}://${host}` : undefined;
+}
 
 @Controller('inventory')
 @UseGuards(JwtAuthGuard, PermissionsGuard)
@@ -35,20 +55,26 @@ export class InventoryController {
 
   @Get()
   @RequirePermissions('inventory.read')
-  findAll(@Query() query: InventoryListQueryDto) {
-    return this.inventoryService.findAll(query);
+  findAll(@Req() req: RequestLike, @Query() query: InventoryListQueryDto) {
+    return this.inventoryService.findAll(query, requestBaseUrl(req));
   }
 
   @Get('low-stock')
   @RequirePermissions('inventory.read')
-  findLowStock(@Query() query: LowStockListQueryDto) {
-    return this.inventoryService.findLowStock(query);
+  findLowStock(
+    @Req() req: RequestLike,
+    @Query() query: LowStockListQueryDto,
+  ) {
+    return this.inventoryService.findLowStock(query, requestBaseUrl(req));
   }
 
   @Get('adjustments')
   @RequirePermissions('inventory.read')
-  findAdjustments(@Query() query: StockAdjustmentListQueryDto) {
-    return this.inventoryService.findAdjustments(query);
+  findAdjustments(
+    @Req() req: RequestLike,
+    @Query() query: StockAdjustmentListQueryDto,
+  ) {
+    return this.inventoryService.findAdjustments(query, requestBaseUrl(req));
   }
 
   @Post('adjustments')
@@ -58,30 +84,6 @@ export class InventoryController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.inventoryService.createAdjustment(dto, user.sub);
-  }
-
-  @Get(':id')
-  @RequirePermissions('inventory.read')
-  findOne(@Param('id') id: string) {
-    return this.inventoryService.findOne(id);
-  }
-
-  @Post()
-  @RequirePermissions('inventory.write')
-  create(@Body() dto: CreateInventoryDto) {
-    return this.inventoryService.create(dto);
-  }
-
-  @Patch(':id')
-  @RequirePermissions('inventory.write')
-  update(@Param('id') id: string, @Body() dto: UpdateInventoryDto) {
-    return this.inventoryService.update(id, dto);
-  }
-
-  @Delete(':id')
-  @RequirePermissions('inventory.delete')
-  remove(@Param('id') id: string) {
-    return this.inventoryService.remove(id);
   }
 
   @Post('import')
@@ -95,5 +97,59 @@ export class InventoryController {
     if (!locationId)
       throw new BadRequestException('locationId query param is required');
     return this.inventoryService.bulkImport(locationId, file);
+  }
+
+  @Get(':id')
+  @RequirePermissions('inventory.read')
+  findOne(@Req() req: RequestLike, @Param('id') id: string) {
+    return this.inventoryService.findOne(id, requestBaseUrl(req));
+  }
+
+  @Post()
+  @RequirePermissions('inventory.write')
+  create(@Req() req: RequestLike, @Body() dto: CreateInventoryDto) {
+    return this.inventoryService.create(dto, requestBaseUrl(req));
+  }
+
+  @Patch(':id')
+  @RequirePermissions('inventory.write')
+  update(
+    @Req() req: RequestLike,
+    @Param('id') id: string,
+    @Body() dto: UpdateInventoryDto,
+  ) {
+    return this.inventoryService.update(id, dto, requestBaseUrl(req));
+  }
+
+  @Post(':id/image')
+  @RequirePermissions('inventory.write')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: 5 * 1024 * 1024 },
+    }),
+  )
+  uploadImage(
+    @Req() req: RequestLike,
+    @Param('id') id: string,
+    @UploadedFile() file: UploadedImageFile,
+  ) {
+    return this.inventoryService.uploadItemImage(
+      id,
+      file,
+      requestBaseUrl(req),
+    );
+  }
+
+  @Delete(':id/image')
+  @RequirePermissions('inventory.write')
+  clearImage(@Req() req: RequestLike, @Param('id') id: string) {
+    return this.inventoryService.clearItemImage(id, requestBaseUrl(req));
+  }
+
+  @Delete(':id')
+  @RequirePermissions('inventory.delete')
+  remove(@Param('id') id: string) {
+    return this.inventoryService.remove(id);
   }
 }
