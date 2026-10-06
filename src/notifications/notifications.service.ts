@@ -237,6 +237,35 @@ export class NotificationsService {
     }
   }
 
+  async onOpeningCredit(params: {
+    kind: 'customer' | 'supplier';
+    creditId: string;
+    partyName: string;
+    amount: string;
+    dueDate?: string | null;
+    reference?: string | null;
+  }) {
+    const isCustomer = params.kind === 'customer';
+    const due = params.dueDate ? ` due ${params.dueDate}` : '';
+    const ref = params.reference ? ` (${params.reference})` : '';
+    await this.notifyUsersWithPermission('credit.read', {
+      module: 'credit',
+      type: NotificationType.CREDIT_DUE,
+      title: isCustomer
+        ? 'Opening customer credit'
+        : 'Opening supplier credit',
+      message: `${params.partyName}${ref}: Br ${params.amount}${due}`,
+      entityType: isCustomer ? 'customer_credit' : 'supplier_credit',
+      entityId: params.creditId,
+      metadata: {
+        amount: params.amount,
+        dueDate: params.dueDate ?? null,
+        reference: params.reference ?? null,
+        source: 'OPENING',
+      },
+    });
+  }
+
   async onStockTransferCompleted(params: {
     transferId: string;
     fromLocationName: string;

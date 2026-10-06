@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Post,
@@ -15,6 +16,10 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { CreditsService } from './credits.service';
 import { CreditPaymentDto } from './dto/credit-payment.dto';
+import {
+  CreateOpeningCustomerCreditDto,
+  CreateOpeningSupplierCreditDto,
+} from './dto/opening-credit.dto';
 
 @Controller('credits')
 @UseGuards(JwtAuthGuard, PermissionsGuard)
@@ -31,6 +36,30 @@ export class CreditsController {
   @RequirePermissions('credit.read')
   supplierCredits(@Query() query: CreditListQueryDto) {
     return this.service.findSupplierCredits(query);
+  }
+
+  @Post('customers')
+  @RequirePermissions('credit.write')
+  createOpeningCustomer(@Body() dto: CreateOpeningCustomerCreditDto) {
+    return this.service.createOpeningCustomerCredit(dto);
+  }
+
+  @Post('suppliers')
+  @RequirePermissions('credit.write')
+  createOpeningSupplier(@Body() dto: CreateOpeningSupplierCreditDto) {
+    return this.service.createOpeningSupplierCredit(dto);
+  }
+
+  @Delete('customers/:id')
+  @RequirePermissions('credit.write')
+  removeOpeningCustomer(@Param('id') id: string) {
+    return this.service.removeOpeningCustomerCredit(id);
+  }
+
+  @Delete('suppliers/:id')
+  @RequirePermissions('credit.write')
+  removeOpeningSupplier(@Param('id') id: string) {
+    return this.service.removeOpeningSupplierCredit(id);
   }
 
   @Post('customers/:id/payments')

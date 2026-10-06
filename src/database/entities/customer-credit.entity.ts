@@ -7,7 +7,7 @@ import {
   OneToOne,
   UpdateDateColumn,
 } from 'typeorm';
-import { CreditStatus } from '../../common/enums';
+import { CreditSource, CreditStatus } from '../../common/enums';
 import { Customer } from './customer.entity';
 import { Sale } from './sale.entity';
 import { UuidBaseEntity } from './uuid-base.entity';
@@ -17,8 +17,22 @@ export class CustomerCredit extends UuidBaseEntity {
   @Column({ name: 'customer_id' })
   customerId: string;
 
-  @Column({ name: 'sale_id', unique: true })
-  saleId: string;
+  @Column({ name: 'sale_id', type: 'uuid', unique: true, nullable: true })
+  saleId: string | null;
+
+  @Column({
+    type: 'enum',
+    enum: CreditSource,
+    enumName: 'credit_source_enum',
+    default: CreditSource.SALE,
+  })
+  source: CreditSource;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  reference: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  notes: string | null;
 
   @Column({ type: 'decimal', precision: 14, scale: 2 })
   amount: string;
@@ -47,7 +61,7 @@ export class CustomerCredit extends UuidBaseEntity {
 
   @OneToOne(() => Sale, (sale) => sale.credit)
   @JoinColumn({ name: 'sale_id' })
-  sale: Sale;
+  sale: Sale | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

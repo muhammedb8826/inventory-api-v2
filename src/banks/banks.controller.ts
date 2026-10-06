@@ -50,8 +50,11 @@ export class BanksController {
 
   @Post('accounts')
   @RequirePermissions('bank.write')
-  createAccount(@Body() dto: CreateBankAccountDto) {
-    return this.service.createAccount(dto);
+  createAccount(
+    @Body() dto: CreateBankAccountDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.service.createAccount(dto, user.sub);
   }
 
   @Patch('accounts/:id')

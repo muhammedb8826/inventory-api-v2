@@ -36,6 +36,13 @@ export enum CreditType {
   SUPPLIER = 'SUPPLIER',
 }
 
+/** How a credit balance was created. OPENING is cutover AR/AP with no sale/purchase. */
+export enum CreditSource {
+  SALE = 'SALE',
+  PURCHASE = 'PURCHASE',
+  OPENING = 'OPENING',
+}
+
 export enum CreditStatus {
   OPEN = 'OPEN',
   PARTIAL = 'PARTIAL',

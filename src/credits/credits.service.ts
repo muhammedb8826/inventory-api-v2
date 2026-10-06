@@ -10,7 +10,7 @@ import {
   Repository,
   SelectQueryBuilder,
 } from 'typeorm';
-import { BankTransactionType, CreditStatus } from '../common/enums';
+import { BankTransactionType, CreditSource, CreditStatus } from '../common/enums';
 import {
   applyDateRangeToQb,
   applyRelatedIlikeSearch,
@@ -21,7 +21,14 @@ import { CreditListQueryDto } from './dto/credit-list-query.dto';
 import { BankLedgerService } from '../banks/bank-ledger.service';
 import { CustomerCredit } from '../database/entities/customer-credit.entity';
 import { SupplierCredit } from '../database/entities/supplier-credit.entity';
+import { Customer } from '../database/entities/customer.entity';
+import { Supplier } from '../database/entities/supplier.entity';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreditPaymentDto } from './dto/credit-payment.dto';
+import {
+  CreateOpeningCustomerCreditDto,
+  CreateOpeningSupplierCreditDto,
+} from './dto/opening-credit.dto';
 
 export type CreditListTotals = {
   amount: string;
@@ -36,9 +43,14 @@ export class CreditsService {
     private readonly customerCreditRepo: Repository<CustomerCredit>,
     @InjectRepository(SupplierCredit)
     private readonly supplierCreditRepo: Repository<SupplierCredit>,
+    @InjectRepository(Customer)
+    private readonly customerRepo: Repository<Customer>,
+    @InjectRepository(Supplier)
+    private readonly supplierRepo: Repository<Supplier>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly bankLedger: BankLedgerService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async findCustomerCredits(query: CreditListQueryDto) {
@@ -88,7 +100,10 @@ export class CreditsService {
         customerId: query.customerId,
       });
     }
-    applyRelatedIlikeSearch(qb, query.search, [], {
+    if (query.source) {
+      qb.andWhere('credit.source = :source', { source: query.source });
+    }
+    applyRelatedIlikeSearch(qb, query.search, ['credit.reference'], {
       table: 'customers',
       alias: 'customer_filter',
       parentKey: 'credit.customer_id',
@@ -111,7 +126,10 @@ export class CreditsService {
         supplierId: query.supplierId,
       });
     }
-    applyRelatedIlikeSearch(qb, query.search, [], {
+    if (query.source) {
+      qb.andWhere('credit.source = :source', { source: query.source });
+    }
+    applyRelatedIlikeSearch(qb, query.search, ['credit.reference'], {
       table: 'suppliers',
       alias: 'supplier_filter',
       parentKey: 'credit.supplier_id',
@@ -234,5 +252,114 @@ export class CreditsService {
 
       return creditRepo.save(credit);
     });
+  }
+
+  async createOpeningCustomerCredit(dto: CreateOpeningCustomerCreditDto) {
+    const customer = await this.customerRepo.findOne({
+      where: { id: dto.customerId },
+    });
+    if (!customer) throw new NotFoundException('Customer not found');
+    if (!customer.isActive) {
+      throw new BadRequestException('Customer is inactive');
+    }
+
+    const amount = dto.amount.toFixed(2);
+    const saved = await this.customerCreditRepo.save(
+      this.customerCreditRepo.create({
+        customerId: dto.customerId,
+        saleId: null,
+        source: CreditSource.OPENING,
+        reference: dto.reference?.trim() || null,
+        notes: dto.notes?.trim() || null,
+        amount,
+        paidAmount: '0.00',
+        balance: amount,
+        status: CreditStatus.OPEN,
+        dueDate: dto.dueDate ?? null,
+      }),
+    );
+
+    const credit = await this.customerCreditRepo.findOne({
+      where: { id: saved.id },
+      relations: { customer: true, sale: true },
+    });
+    await this.notifications.onOpeningCredit({
+      kind: 'customer',
+      creditId: saved.id,
+      partyName: customer.name,
+      amount,
+      dueDate: dto.dueDate ?? null,
+      reference: dto.reference?.trim() || null,
+    });
+    return credit;
+  }
+
+  async createOpeningSupplierCredit(dto: CreateOpeningSupplierCreditDto) {
+    const supplier = await this.supplierRepo.findOne({
+      where: { id: dto.supplierId },
+    });
+    if (!supplier) throw new NotFoundException('Supplier not found');
+    if (!supplier.isActive) {
+      throw new BadRequestException('Supplier is inactive');
+    }
+
+    const amount = dto.amount.toFixed(2);
+    const saved = await this.supplierCreditRepo.save(
+      this.supplierCreditRepo.create({
+        supplierId: dto.supplierId,
+        purchaseId: null,
+        source: CreditSource.OPENING,
+        reference: dto.reference?.trim() || null,
+        notes: dto.notes?.trim() || null,
+        amount,
+        paidAmount: '0.00',
+        balance: amount,
+        status: CreditStatus.OPEN,
+        dueDate: dto.dueDate ?? null,
+      }),
+    );
+
+    const credit = await this.supplierCreditRepo.findOne({
+      where: { id: saved.id },
+      relations: { supplier: true, purchase: true },
+    });
+    await this.notifications.onOpeningCredit({
+      kind: 'supplier',
+      creditId: saved.id,
+      partyName: supplier.name,
+      amount,
+      dueDate: dto.dueDate ?? null,
+      reference: dto.reference?.trim() || null,
+    });
+    return credit;
+  }
+
+  async removeOpeningCustomerCredit(id: string) {
+    const credit = await this.customerCreditRepo.findOne({ where: { id } });
+    if (!credit) throw new NotFoundException('Customer credit not found');
+    this.assertOpeningRemovable(credit.source, credit.paidAmount);
+    await this.customerCreditRepo.remove(credit);
+    return { success: true };
+  }
+
+  async removeOpeningSupplierCredit(id: string) {
+    const credit = await this.supplierCreditRepo.findOne({ where: { id } });
+    if (!credit) throw new NotFoundException('Supplier credit not found');
+    this.assertOpeningRemovable(credit.source, credit.paidAmount);
+    await this.supplierCreditRepo.remove(credit);
+    return { success: true };
+  }
+
+  private assertOpeningRemovable(source: CreditSource, paidAmount: string) {
+    if (source !== CreditSource.OPENING) {
+      throw new BadRequestException(
+        'Only opening credits can be deleted; void the sale or purchase instead',
+      );
+    }
+    if (parseFloat(paidAmount) > 0) {
+      throw new BadRequestException(
+        'Cannot delete an opening credit after payments have been applied',
+      );
+    }
   }
 }

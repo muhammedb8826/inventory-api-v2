@@ -9,6 +9,7 @@ import { DataSource, EntityManager, Repository } from 'typeorm';
 import {
   BankTransactionType,
   CommissionBasis,
+  CreditSource,
   CreditStatus,
   DEFAULT_COMMISSION_PERCENT,
   DocumentStatus,
@@ -540,6 +541,7 @@ export class SalesService {
           creditRepo.create({
             customerId,
             saleId: sale.id,
+            source: CreditSource.SALE,
             amount: subtotal.toFixed(2),
             paidAmount: '0',
             balance: subtotal.toFixed(2),
@@ -763,6 +765,7 @@ export class SalesService {
           creditRepo.create({
             customerId: dto.customerId,
             saleId: sale.id,
+            source: CreditSource.SALE,
             amount: subtotal.toFixed(2),
             paidAmount: '0',
             balance: subtotal.toFixed(2),

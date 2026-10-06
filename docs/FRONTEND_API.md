@@ -285,8 +285,8 @@ All report endpoints require `reports.read`. Optional query filters on date-base
 | `/purchases` | `includeVoided`, `supplierId`, `locationId`, `paymentMethod`, `search` (notes, supplier name) |
 | `/sales` | `includeVoided`, `soldByUserId`, `customerId`, `locationId`, `paymentMethod`, `search` (notes, customer name) |
 | `/expenses` | `categoryId`, `bankAccountId`, `search` (description, category name) |
-| `/credits/customers` | `status`, `customerId`, `search` (customer name, phone) |
-| `/credits/suppliers` | `status`, `supplierId`, `search` (supplier name, phone) |
+| `/credits/customers` | `status`, `customerId`, `source` (`SALE` \| `OPENING`), `search` (customer name, phone, reference) |
+| `/credits/suppliers` | `status`, `supplierId`, `source` (`PURCHASE` \| `OPENING`), `search` (supplier name, phone, reference) |
 | `/stock-transfers` | `fromLocationId`, `toLocationId`, `status`, `search` (notes) |
 | `/banks/accounts` | `type` (`CASH` \| `BANK`), `includeInactive`, `search` (name, bank, account number) |
 | `/banks/transactions` | `bankAccountId`, `type`, `direction` (`in` \| `out`), `search` (description) |
@@ -1014,10 +1014,41 @@ Sale responses include `soldByUserId`, `commissionPercent`, `commissionBasis`, `
 |--------|------|------------|
 | GET | `/credits/customers` | `credit.read` |
 | GET | `/credits/suppliers` | `credit.read` |
+| POST | `/credits/customers` | `credit.write` |
+| POST | `/credits/suppliers` | `credit.write` |
+| DELETE | `/credits/customers/:id` | `credit.write` |
+| DELETE | `/credits/suppliers/:id` | `credit.write` |
 | POST | `/credits/customers/:id/payments` | `credit.write` |
 | POST | `/credits/suppliers/:id/payments` | `credit.write` |
 
-**List query params:** `page`, `limit`, `from`, `to`, `status` (`OPEN` \| `PARTIAL` \| `PAID`), `search`, plus `customerId` on `/credits/customers` or `supplierId` on `/credits/suppliers`.
+**List query params:** `page`, `limit`, `from`, `to`, `status` (`OPEN` \| `PARTIAL` \| `PAID`), `source` (`SALE` \| `PURCHASE` \| `OPENING`), `search` (name, phone, or `reference`), plus `customerId` on `/credits/customers` or `supplierId` on `/credits/suppliers`.
+
+Each credit row includes `source` (`SALE` / `PURCHASE` from documents, or `OPENING` for cutover AR/AP), optional `reference` (prior-system invoice number), and optional `notes`. Opening credits have `saleId` / `purchaseId` `null` and do **not** change stock or cash until a payment is recorded.
+
+**Opening customer receivable (cutover AR)** — `POST /credits/customers`
+
+```json
+{
+  "customerId": "uuid",
+  "amount": 12500,
+  "dueDate": "2026-10-31",
+  "reference": "OLD-INV-1042",
+  "notes": "Unpaid invoice from previous system"
+}
+```
+
+**Opening supplier payable (cutover AP)** — `POST /credits/suppliers`
+
+```json
+{
+  "supplierId": "uuid",
+  "amount": 8000,
+  "dueDate": "2026-10-15",
+  "reference": "OLD-BILL-88"
+}
+```
+
+Collect or pay them with the same payment endpoints as document credits. `DELETE` is allowed only for `source=OPENING` credits with no payments applied.
 
 **List response** — paginated rows plus **`totals`** summed across the **filtered** result set (not just the current page):
 
@@ -1130,7 +1161,7 @@ Reduces bank balance automatically (transactional).
 | `bankName` | no | **Provider / institution** (e.g. `"Commercial Bank of Ethiopia"`) |
 | `accountHolderName` | no | **Name on the account** (business or person) |
 | `accountNumber` | no | Account number at the bank |
-| `balance` | no | Opening balance on create only (default `0`) |
+| `balance` | no | Opening cash/bank amount on create only (default `0`). Posted as ledger type `OPENING` (`direction: in`) so cash-flow reports include it. |
 | `isActive` | no | PATCH only — set `false` to soft-deactivate |
 
 **Create / update body**

@@ -88,11 +88,14 @@ export class BankLedgerService {
     if (!original) return null;
 
     const amount = parseFloat(original.amount);
-    const direction =
+    const wasIn =
+      original.direction === BankTransactionDirection.IN ||
       original.type === BankTransactionType.SALE ||
-      original.type === BankTransactionType.CREDIT_RECEIPT
-        ? BankTransactionDirection.OUT
-        : BankTransactionDirection.IN;
+      original.type === BankTransactionType.CREDIT_RECEIPT ||
+      original.type === BankTransactionType.OPENING;
+    const direction = wasIn
+      ? BankTransactionDirection.OUT
+      : BankTransactionDirection.IN;
 
     return this.recordTransaction(
       {

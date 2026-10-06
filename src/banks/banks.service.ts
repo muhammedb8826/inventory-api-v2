@@ -98,17 +98,41 @@ export class BanksService {
     return account;
   }
 
-  createAccount(dto: CreateBankAccountDto) {
-    return this.accountRepo.save(
-      this.accountRepo.create({
-        name: dto.name,
-        accountType: dto.accountType,
-        bankName: dto.bankName ?? null,
-        accountHolderName: dto.accountHolderName ?? null,
-        accountNumber: dto.accountNumber ?? null,
-        balance: (dto.balance ?? 0).toFixed(2),
-      }),
-    );
+  async createAccount(dto: CreateBankAccountDto, userId?: string) {
+    return this.accountRepo.manager.transaction(async (manager) => {
+      const accountRepo = manager.getRepository(BankAccount);
+      const saved = await accountRepo.save(
+        accountRepo.create({
+          name: dto.name,
+          accountType: dto.accountType,
+          bankName: dto.bankName ?? null,
+          accountHolderName: dto.accountHolderName ?? null,
+          accountNumber: dto.accountNumber ?? null,
+          balance: '0.00',
+        }),
+      );
+
+      const opening = dto.balance ?? 0;
+      if (opening > 0) {
+        await this.ledger.recordTransaction(
+          {
+            bankAccountId: saved.id,
+            type: BankTransactionType.OPENING,
+            amount: opening,
+            direction: 'in',
+            description: 'Opening balance',
+            refType: 'bank_account',
+            refId: saved.id,
+            createdById: userId,
+          },
+          manager,
+        );
+      }
+
+      const account = await accountRepo.findOne({ where: { id: saved.id } });
+      if (!account) throw new NotFoundException('Bank account not found');
+      return account;
+    });
   }
 
   async updateAccount(id: string, dto: UpdateBankAccountDto) {

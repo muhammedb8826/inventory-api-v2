@@ -7,6 +7,7 @@ import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import {
   BankTransactionType,
+  CreditSource,
   CreditStatus,
   DocumentStatus,
   PaymentMethod,
@@ -296,6 +297,7 @@ export class PurchasesService {
           creditRepo.create({
             supplierId,
             purchaseId: purchase.id,
+            source: CreditSource.PURCHASE,
             amount: subtotal.toFixed(2),
             paidAmount: '0',
             balance: subtotal.toFixed(2),
@@ -450,6 +452,7 @@ export class PurchasesService {
           creditRepo.create({
             supplierId: dto.supplierId,
             purchaseId: purchase.id,
+            source: CreditSource.PURCHASE,
             amount: subtotal.toFixed(2),
             paidAmount: '0',
             balance: subtotal.toFixed(2),
