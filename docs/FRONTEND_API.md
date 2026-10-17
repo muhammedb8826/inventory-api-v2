@@ -281,7 +281,7 @@ All report endpoints require `reports.read`. Optional query filters on date-base
 | `/inventory` | `locationId`, `search` (item description, SKU) |
 | `/inventory/adjustments` | `locationId`, `itemId`, `direction` (`in` \| `out`), `reason`, `search` |
 | `/suppliers`, `/customers` | `search` (name, email, phone) |
-| `/inquiries` | `search` (name, email, phone, subject, message), `status`, `source`, `priority`, `customerId`, `assignedToUserId`, `itemId` (any line) |
+| `/inquiries` | `search` (name, email, phone, subject, message), `status`, `source`, `priority`, `customerId`, `assignedToUserId`, `assignmentStatus`, `itemId` (any line) |
 | `/purchases` | `includeVoided`, `supplierId`, `locationId`, `paymentMethod`, `search` (notes, supplier name) |
 | `/sales` | `includeVoided`, `soldByUserId`, `customerId`, `locationId`, `paymentMethod`, `search` (notes, customer name) |
 | `/expenses` | `categoryId`, `bankAccountId`, `search` (description, category name) |
@@ -720,8 +720,11 @@ Interested catalog products are stored as **`lines`** (zero or many). Legacy sin
 | Method | Path | Description |
 |--------|------|-------------|
 | POST | `/public/inquiries` | Submit from website / landing page |
+| GET | `/public/catalog` | Active catalog for product picker (`id`, `sku`, `description`, `imageUrl`) |
 
-**Body**
+**Catalog query:** `page`, `limit` (max 50), `search` (description / sku).
+
+**Inquiry body**
 
 | Field | Required | Notes |
 |-------|----------|-------|
@@ -730,7 +733,7 @@ Interested catalog products are stored as **`lines`** (zero or many). Legacy sin
 | `message` | yes | |
 | `phone` | one of phone/email | |
 | `email` | one of phone/email | |
-| `lines` | no | Array of `{ itemId, quantity?, notes? }` |
+| `lines` | no | Array of `{ itemId, quantity?, notes? }` — multiple catalog items |
 | `itemId` | no | Legacy shorthand for a single line |
 
 **Response** (`201`)
@@ -745,6 +748,21 @@ Interested catalog products are stored as **`lines`** (zero or many). Legacy sin
 
 CORS must allow the marketing/site origin via `CORS_ORIGIN`.
 
+### Assignment workflow (industry CRM)
+
+| `assignmentStatus` | Meaning |
+|--------------------|---------|
+| `UNASSIGNED` | In the open pool — anyone with write can **Claim** |
+| `PENDING` | Assigned to a user; they must **Accept** or **Decline** |
+| `ACCEPTED` | Assignee owns the inquiry |
+| `DECLINED` | Last assignee declined; back in the pool (`assignedToUserId` cleared) |
+
+Rules:
+- Assigning someone else → `PENDING` + notify them to accept
+- Self-assign / **Claim** → `ACCEPTED` immediately; if CRM `status` was `NEW`, it becomes `IN_PROGRESS`
+- **Accept** → `ACCEPTED` (+ `IN_PROGRESS` if still `NEW`)
+- **Decline** → clears assignee, sets `DECLINED`, notifies staff with `inquiries.read`
+
 ### Internal (JWT + permissions)
 
 | Method | Path | Permission |
@@ -753,13 +771,16 @@ CORS must allow the marketing/site origin via `CORS_ORIGIN`.
 | GET | `/inquiries/:id` | `inquiries.read` |
 | POST | `/inquiries` | `inquiries.write` |
 | PATCH | `/inquiries/:id` | `inquiries.write` |
+| POST | `/inquiries/:id/accept` | `inquiries.write` (assignee only) |
+| POST | `/inquiries/:id/decline` | `inquiries.write` (assignee only) |
+| POST | `/inquiries/:id/claim` | `inquiries.write` |
 | DELETE | `/inquiries/:id` | `inquiries.write` |
 
-**List query:** `page`, `limit`, `from`, `to`, `search` (name, email, phone, subject, message), `status`, `source` (`PUBLIC` \| `INTERNAL`), `priority`, `customerId`, `assignedToUserId`, `itemId` (matches any line).
+**List query:** `page`, `limit`, `from`, `to`, `search` (name, email, phone, subject, message), `status`, `source` (`PUBLIC` \| `INTERNAL`), `priority`, `customerId`, `assignedToUserId`, `assignmentStatus`, `itemId` (matches any line).
 
 **Create body (internal):** same contact fields as public, plus optional `priority`, `customerId`, `assignedToUserId`, `internalNotes`, `followUpAt`, `lines` (or legacy `itemId`). Source is always `INTERNAL`; `createdById` is the logged-in user.
 
-**PATCH body:** any of `contactName`, `phone`, `email`, `subject`, `message`, `status`, `priority`, `customerId`, `lines`, `itemId` (legacy), `assignedToUserId`, `internalNotes`, `followUpAt`, `convertedSaleId`. Sending `lines` **replaces** all interest lines. Setting `convertedSaleId` auto-sets `status` to `CONVERTED` if status is omitted.
+**PATCH body:** any of `contactName`, `phone`, `email`, `subject`, `message`, `status`, `priority`, `customerId`, `lines`, `itemId` (legacy), `assignedToUserId`, `internalNotes`, `followUpAt`, `convertedSaleId`. Sending `lines` **replaces** all interest lines. Setting `convertedSaleId` auto-sets `status` to `CONVERTED` if status is omitted. Changing `assignedToUserId` updates `assignmentStatus` as above.
 
 **DELETE** soft-cancels (`status = CANCELLED`). Converted inquiries cannot be deleted — set `CLOSED` instead.
 
@@ -778,6 +799,9 @@ CORS must allow the marketing/site origin via `CORS_ORIGIN`.
   "source": "PUBLIC",
   "customerId": null,
   "assignedToUserId": null,
+  "assignmentStatus": "UNASSIGNED",
+  "assignedAt": null,
+  "acceptedAt": null,
   "createdById": null,
   "internalNotes": null,
   "followUpAt": null,
@@ -1337,7 +1361,7 @@ Notifications are created automatically when you record a **sale**, **purchase**
 | Assigned to a user | New assignee (skipped if they assigned themselves) | Inquiry assigned to you |
 | Reassigned / unassigned | Previous assignee (skipped if they are the actor) | Inquiry reassigned / Inquiry unassigned |
 
-Deep-link with `entityType: "inquiry"` + `entityId`. Metadata includes `event` (`submitted` \| `assigned` \| `reassigned` \| `unassigned`), `subject`, `contactName`, `source`, `priority`.
+Deep-link with `entityType: "inquiry"` + `entityId`. Metadata includes `event` (`submitted` \| `assigned` \| `reassigned` \| `unassigned` \| `accepted` \| `declined`), `subject`, `contactName`, `source`, `priority`, optional `assignmentStatus`.
 
 | Method | Path | Auth |
 |--------|------|------|
@@ -1533,7 +1557,7 @@ Open [http://localhost:3000](http://localhost:3000).
 | `/banks` | `/banks/*` |
 | `/profit-loss` | `/profit-loss/*` |
 | `/locations`, `/suppliers`, `/customers` | master data + PATCH |
-| `/inquiries`, `/public/inquiries` | customer inquiries (staff + public submit) |
+| `/inquiries`, `/public/inquiries`, `/public/catalog` | customer inquiries (staff + public submit + catalog picker) |
 | `/settings/branding` | `GET/PATCH /settings/branding`, `POST/DELETE /settings/branding/hero-image`; public `GET /public/branding` |
 | `/users`, `/roles` | admin CRUD |
 | `/notifications` | in-app notification bell |

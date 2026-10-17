@@ -9,6 +9,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import {
+  InquiryAssignmentStatus,
   InquiryPriority,
   InquirySource,
   InquiryStatus,
@@ -60,6 +61,21 @@ export class CustomerInquiry extends UuidBaseEntity {
 
   @Column({ name: 'assigned_to_user_id', type: 'uuid', nullable: true })
   assignedToUserId: string | null;
+
+  @Column({
+    name: 'assignment_status',
+    type: 'enum',
+    enum: InquiryAssignmentStatus,
+    enumName: 'inquiry_assignment_status_enum',
+    default: InquiryAssignmentStatus.UNASSIGNED,
+  })
+  assignmentStatus: InquiryAssignmentStatus;
+
+  @Column({ name: 'assigned_at', type: 'timestamptz', nullable: true })
+  assignedAt: Date | null;
+
+  @Column({ name: 'accepted_at', type: 'timestamptz', nullable: true })
+  acceptedAt: Date | null;
 
   @Column({ name: 'created_by_id', type: 'uuid', nullable: true })
   createdById: string | null;

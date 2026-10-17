@@ -7,7 +7,10 @@ import {
 import { Reflector } from '@nestjs/core';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { PERMISSIONS_KEY } from '../decorators/permissions.decorator';
+import {
+  PERMISSIONS_ANY_KEY,
+  PERMISSIONS_KEY,
+} from '../decorators/permissions.decorator';
 import { User } from '../../database/entities/user.entity';
 
 @Injectable()
@@ -19,11 +22,15 @@ export class PermissionsGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const required = this.reflector.getAllAndOverride<string[]>(
+    const requiredAll = this.reflector.getAllAndOverride<string[]>(
       PERMISSIONS_KEY,
       [context.getHandler(), context.getClass()],
     );
-    if (!required?.length) return true;
+    const requiredAny = this.reflector.getAllAndOverride<string[]>(
+      PERMISSIONS_ANY_KEY,
+      [context.getHandler(), context.getClass()],
+    );
+    if (!requiredAll?.length && !requiredAny?.length) return true;
 
     const { user } = context.switchToHttp().getRequest();
     if (!user?.sub) throw new ForbiddenException('Not authenticated');
@@ -35,8 +42,11 @@ export class PermissionsGuard implements CanActivate {
     if (!dbUser?.role) throw new ForbiddenException('No role assigned');
 
     const codes = new Set(dbUser.role.permissions?.map((p) => p.code) ?? []);
-    const hasAll = required.every((p) => codes.has(p));
-    if (!hasAll) {
+
+    if (requiredAll?.length && !requiredAll.every((p) => codes.has(p))) {
+      throw new ForbiddenException('Insufficient permissions');
+    }
+    if (requiredAny?.length && !requiredAny.some((p) => codes.has(p))) {
       throw new ForbiddenException('Insufficient permissions');
     }
 

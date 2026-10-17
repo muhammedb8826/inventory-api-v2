@@ -54,6 +54,24 @@ export class InquiriesController {
     return this.service.update(id, dto, user.sub);
   }
 
+  @Post(':id/accept')
+  @RequirePermissions('inquiries.write')
+  accept(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return this.service.accept(id, user.sub);
+  }
+
+  @Post(':id/decline')
+  @RequirePermissions('inquiries.write')
+  decline(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return this.service.decline(id, user.sub);
+  }
+
+  @Post(':id/claim')
+  @RequirePermissions('inquiries.write')
+  claim(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return this.service.claim(id, user.sub);
+  }
+
   @Delete(':id')
   @RequirePermissions('inquiries.write')
   remove(@Param('id') id: string) {

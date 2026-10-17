@@ -9,7 +9,10 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { RequirePermissions } from '../common/decorators/permissions.decorator';
+import {
+  RequireAnyPermissions,
+  RequirePermissions,
+} from '../common/decorators/permissions.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { CreateUserDto, UpdateUserDto } from './dto/user.dto';
@@ -25,6 +28,21 @@ export class UsersController {
   @RequirePermissions('users.read')
   findAll(@Query() query: UserListQueryDto) {
     return this.usersService.findAll(query);
+  }
+
+  /**
+   * Active users for assignee dropdowns (inquiries, etc.).
+   * Does not require full users.read.
+   */
+  @Get('assignees')
+  @RequireAnyPermissions(
+    'users.read',
+    'inquiries.write',
+    'inquiries.read',
+    'sales.write',
+  )
+  findAssignees() {
+    return this.usersService.findAssignees();
   }
 
   @Get(':id')

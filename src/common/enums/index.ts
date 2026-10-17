@@ -134,3 +134,15 @@ export enum InquiryPriority {
   HIGH = 'HIGH',
   URGENT = 'URGENT',
 }
+
+/**
+ * CRM-style ownership of an inquiry assignment.
+ * Assign → PENDING (assignee must Accept or Decline).
+ * Self-assign / Claim → ACCEPTED immediately.
+ */
+export enum InquiryAssignmentStatus {
+  UNASSIGNED = 'UNASSIGNED',
+  PENDING = 'PENDING',
+  ACCEPTED = 'ACCEPTED',
+  DECLINED = 'DECLINED',
+}

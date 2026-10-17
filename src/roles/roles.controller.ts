@@ -9,7 +9,10 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { RequirePermissions } from '../common/decorators/permissions.decorator';
+import {
+  RequireAnyPermissions,
+  RequirePermissions,
+} from '../common/decorators/permissions.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { CreateRoleDto, UpdateRoleDto } from './dto/role.dto';
@@ -21,8 +24,9 @@ import { RolesService } from './roles.service';
 export class RolesController {
   constructor(private readonly rolesService: RolesService) {}
 
+  /** roles.read for role admin; users.write so user forms can pick a role. */
   @Get()
-  @RequirePermissions('roles.read')
+  @RequireAnyPermissions('roles.read', 'users.write')
   findAll(@Query() query: RoleListQueryDto) {
     return this.rolesService.findAll(query);
   }

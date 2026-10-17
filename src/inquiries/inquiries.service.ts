@@ -1,12 +1,23 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { parseDateRange } from '../common/dto/date-range.dto';
-import { InquiryPriority, InquirySource, InquiryStatus } from '../common/enums';
+import {
+  InquiryAssignmentStatus,
+  InquiryPriority,
+  InquirySource,
+  InquiryStatus,
+} from '../common/enums';
+import {
+  absoluteMediaUrl,
+  publicBaseFromConfig,
+} from '../common/utils/media-url.util';
 import { Customer } from '../database/entities/customer.entity';
 import { CustomerInquiryLine } from '../database/entities/customer-inquiry-line.entity';
 import { CustomerInquiry } from '../database/entities/customer-inquiry.entity';
@@ -21,6 +32,7 @@ import {
   PublicCreateInquiryDto,
   UpdateInquiryDto,
 } from './dto/inquiry.dto';
+import { PublicCatalogQueryDto } from './dto/public-catalog-query.dto';
 
 @Injectable()
 export class InquiriesService {
@@ -38,7 +50,44 @@ export class InquiriesService {
     @InjectRepository(Sale)
     private readonly saleRepo: Repository<Sale>,
     private readonly notifications: NotificationsService,
+    private readonly config: ConfigService,
   ) {}
+
+  /**
+   * Apply assignee change using CRM accept workflow:
+   * - clear → UNASSIGNED
+   * - self-assign → ACCEPTED (+ IN_PROGRESS if NEW)
+   * - assign to someone else → PENDING (they must Accept / Decline)
+   */
+  private applyAssigneeChange(
+    row: CustomerInquiry,
+    nextAssigneeId: string | null,
+    actorUserId: string,
+  ) {
+    const prev = row.assignedToUserId;
+    if (prev === nextAssigneeId) return false;
+
+    row.assignedToUserId = nextAssigneeId;
+    if (!nextAssigneeId) {
+      row.assignmentStatus = InquiryAssignmentStatus.UNASSIGNED;
+      row.assignedAt = null;
+      row.acceptedAt = null;
+      return true;
+    }
+
+    row.assignedAt = new Date();
+    row.acceptedAt = null;
+    if (nextAssigneeId === actorUserId) {
+      row.assignmentStatus = InquiryAssignmentStatus.ACCEPTED;
+      row.acceptedAt = new Date();
+      if (row.status === InquiryStatus.NEW) {
+        row.status = InquiryStatus.IN_PROGRESS;
+      }
+    } else {
+      row.assignmentStatus = InquiryAssignmentStatus.PENDING;
+    }
+    return true;
+  }
 
   private assertContactChannel(phone?: string | null, email?: string | null) {
     if (!phone?.trim() && !email?.trim()) {
@@ -172,6 +221,11 @@ export class InquiriesService {
         { itemId: query.itemId },
       );
     }
+    if (query.assignmentStatus) {
+      qb.andWhere('i.assignment_status = :assignmentStatus', {
+        assignmentStatus: query.assignmentStatus,
+      });
+    }
 
     if (query.search?.trim()) {
       const search = `%${query.search.trim()}%`;
@@ -239,6 +293,9 @@ export class InquiriesService {
         priority: InquiryPriority.NORMAL,
         customerId: null,
         assignedToUserId: null,
+        assignmentStatus: InquiryAssignmentStatus.UNASSIGNED,
+        assignedAt: null,
+        acceptedAt: null,
         createdById: null,
         internalNotes: null,
         followUpAt: null,
@@ -268,24 +325,31 @@ export class InquiriesService {
     });
     await this.assertLines(lines);
 
-    const row = await this.repo.save(
-      this.repo.create({
-        contactName: dto.contactName.trim(),
-        phone: dto.phone?.trim() || null,
-        email: dto.email?.trim() || null,
-        subject: dto.subject.trim(),
-        message: dto.message.trim(),
-        priority: dto.priority ?? InquiryPriority.NORMAL,
-        customerId: dto.customerId ?? null,
-        assignedToUserId: dto.assignedToUserId ?? null,
-        internalNotes: dto.internalNotes?.trim() || null,
-        followUpAt: dto.followUpAt ? new Date(dto.followUpAt) : null,
-        source: InquirySource.INTERNAL,
-        status: InquiryStatus.NEW,
-        createdById,
-        convertedSaleId: null,
-      }),
-    );
+    const draft = this.repo.create({
+      contactName: dto.contactName.trim(),
+      phone: dto.phone?.trim() || null,
+      email: dto.email?.trim() || null,
+      subject: dto.subject.trim(),
+      message: dto.message.trim(),
+      priority: dto.priority ?? InquiryPriority.NORMAL,
+      customerId: dto.customerId ?? null,
+      assignedToUserId: null,
+      assignmentStatus: InquiryAssignmentStatus.UNASSIGNED,
+      assignedAt: null,
+      acceptedAt: null,
+      internalNotes: dto.internalNotes?.trim() || null,
+      followUpAt: dto.followUpAt ? new Date(dto.followUpAt) : null,
+      source: InquirySource.INTERNAL,
+      status: InquiryStatus.NEW,
+      createdById,
+      convertedSaleId: null,
+    });
+
+    if (dto.assignedToUserId) {
+      this.applyAssigneeChange(draft, dto.assignedToUserId, createdById);
+    }
+
+    const row = await this.repo.save(draft);
 
     if (lines.length) {
       await this.lineRepo.save(this.mapLineEntities(row.id, lines));
@@ -297,6 +361,7 @@ export class InquiriesService {
         assigneeUserId: row.assignedToUserId,
         previousAssigneeUserId: null,
         actorUserId: createdById,
+        assignmentStatus: row.assignmentStatus,
       });
     }
 
@@ -327,8 +392,13 @@ export class InquiriesService {
     if (dto.status !== undefined) row.status = dto.status;
     if (dto.priority !== undefined) row.priority = dto.priority;
     if (dto.customerId !== undefined) row.customerId = dto.customerId;
+    let assigneeChanged = false;
     if (dto.assignedToUserId !== undefined) {
-      row.assignedToUserId = dto.assignedToUserId;
+      assigneeChanged = this.applyAssigneeChange(
+        row,
+        dto.assignedToUserId,
+        actorUserId,
+      );
     }
     if (dto.internalNotes !== undefined) {
       row.internalNotes = dto.internalNotes?.trim() || null;
@@ -355,16 +425,138 @@ export class InquiriesService {
       );
     }
 
-    if (dto.assignedToUserId !== undefined) {
+    if (assigneeChanged) {
       await this.notifications.onInquiryAssignmentChanged({
         ...this.inquiryNotifyPayload(row),
         assigneeUserId: row.assignedToUserId,
         previousAssigneeUserId,
         actorUserId,
+        assignmentStatus: row.assignmentStatus,
       });
     }
 
     return this.findOne(id);
+  }
+
+  async accept(id: string, userId: string) {
+    const row = await this.findOne(id);
+    if (row.assignedToUserId !== userId) {
+      throw new ForbiddenException('Only the assignee can accept this inquiry');
+    }
+    if (row.assignmentStatus !== InquiryAssignmentStatus.PENDING) {
+      throw new BadRequestException('Inquiry is not pending acceptance');
+    }
+    row.assignmentStatus = InquiryAssignmentStatus.ACCEPTED;
+    row.acceptedAt = new Date();
+    if (row.status === InquiryStatus.NEW) {
+      row.status = InquiryStatus.IN_PROGRESS;
+    }
+    const { lines: _lines, ...header } = row;
+    await this.repo.save(header);
+    await this.notifications.onInquiryAssignmentResponse({
+      ...this.inquiryNotifyPayload(row),
+      actorUserId: userId,
+      event: 'accepted',
+    });
+    return this.findOne(id);
+  }
+
+  async decline(id: string, userId: string) {
+    const row = await this.findOne(id);
+    if (row.assignedToUserId !== userId) {
+      throw new ForbiddenException('Only the assignee can decline this inquiry');
+    }
+    if (row.assignmentStatus !== InquiryAssignmentStatus.PENDING) {
+      throw new BadRequestException('Inquiry is not pending acceptance');
+    }
+    const previousAssigneeUserId = row.assignedToUserId;
+    row.assignedToUserId = null;
+    row.assignmentStatus = InquiryAssignmentStatus.DECLINED;
+    row.assignedAt = null;
+    row.acceptedAt = null;
+    const { lines: _lines, ...header } = row;
+    await this.repo.save(header);
+    await this.notifications.onInquiryAssignmentResponse({
+      ...this.inquiryNotifyPayload(row),
+      actorUserId: userId,
+      event: 'declined',
+      previousAssigneeUserId,
+    });
+    return this.findOne(id);
+  }
+
+  /** Pull from the unassigned pool (industry claim / self-assign). */
+  async claim(id: string, userId: string) {
+    const row = await this.findOne(id);
+    if (
+      row.assignedToUserId &&
+      row.assignmentStatus === InquiryAssignmentStatus.ACCEPTED
+    ) {
+      throw new BadRequestException('Inquiry is already accepted by someone');
+    }
+    if (
+      row.assignedToUserId &&
+      row.assignmentStatus === InquiryAssignmentStatus.PENDING &&
+      row.assignedToUserId !== userId
+    ) {
+      throw new BadRequestException(
+        'Inquiry is pending acceptance by another user',
+      );
+    }
+    const previousAssigneeUserId = row.assignedToUserId;
+    this.applyAssigneeChange(row, userId, userId);
+    const { lines: _lines, ...header } = row;
+    await this.repo.save(header);
+    if (previousAssigneeUserId && previousAssigneeUserId !== userId) {
+      await this.notifications.onInquiryAssignmentChanged({
+        ...this.inquiryNotifyPayload(row),
+        assigneeUserId: userId,
+        previousAssigneeUserId,
+        actorUserId: userId,
+        assignmentStatus: row.assignmentStatus,
+      });
+    }
+    return this.findOne(id);
+  }
+
+  async findPublicCatalog(query: PublicCatalogQueryDto) {
+    const qb = this.itemRepo
+      .createQueryBuilder('item')
+      .where('item.is_active = true')
+      .orderBy('item.description', 'ASC');
+
+    if (query.search?.trim()) {
+      const search = `%${query.search.trim()}%`;
+      qb.andWhere(
+        '(item.description ILIKE :search OR item.sku ILIKE :search)',
+        { search },
+      );
+    }
+
+    const page = query.page ?? 1;
+    const limit = Math.min(query.limit ?? 20, 50);
+    const [rows, total] = await qb
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
+
+    const publicBase = publicBaseFromConfig(this.config);
+    return {
+      data: rows.map((item) => ({
+        id: item.id,
+        sku: item.sku,
+        description: item.description,
+        imageUrl: absoluteMediaUrl(item.imagePath, {
+          publicBaseUrl: publicBase,
+        }),
+      })),
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit) || 1,
+      },
+    };
   }
 
   async remove(id: string) {

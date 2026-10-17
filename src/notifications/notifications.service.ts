@@ -341,6 +341,7 @@ export class NotificationsService {
     assigneeUserId: string | null;
     previousAssigneeUserId: string | null;
     actorUserId?: string | null;
+    assignmentStatus?: string;
   }) {
     const {
       inquiryId,
@@ -359,14 +360,20 @@ export class NotificationsService {
       contactName,
       source,
       priority: params.priority ?? 'NORMAL',
+      assignmentStatus: params.assignmentStatus ?? null,
     };
 
     if (assigneeUserId && assigneeUserId !== actorUserId) {
+      const pending = params.assignmentStatus === 'PENDING';
       await this.notifyUsers([assigneeUserId], {
         module: 'inquiries',
         type: NotificationType.INQUIRY,
-        title: 'Inquiry assigned to you',
-        message: `"${subject}" from ${contactName} was assigned to you`,
+        title: pending
+          ? 'Inquiry assigned — accept to take ownership'
+          : 'Inquiry assigned to you',
+        message: pending
+          ? `"${subject}" from ${contactName} was assigned to you. Accept or decline it.`
+          : `"${subject}" from ${contactName} was assigned to you`,
         entityType: 'inquiry',
         entityId: inquiryId,
         metadata: {
@@ -398,6 +405,47 @@ export class NotificationsService {
         },
       });
     }
+  }
+
+  /** Notify staff when an assignee accepts or declines a pending assignment. */
+  async onInquiryAssignmentResponse(params: {
+    inquiryId: string;
+    subject: string;
+    contactName: string;
+    source: string;
+    priority?: string;
+    actorUserId: string;
+    event: 'accepted' | 'declined';
+    previousAssigneeUserId?: string | null;
+  }) {
+    const title =
+      params.event === 'accepted'
+        ? 'Inquiry assignment accepted'
+        : 'Inquiry assignment declined';
+    const message =
+      params.event === 'accepted'
+        ? `"${params.subject}" was accepted and is now in progress`
+        : `"${params.subject}" was declined and is back in the unassigned pool`;
+
+    await this.notifyUsersWithPermission(
+      'inquiries.read',
+      {
+        module: 'inquiries',
+        type: NotificationType.INQUIRY,
+        title,
+        message,
+        entityType: 'inquiry',
+        entityId: params.inquiryId,
+        metadata: {
+          subject: params.subject,
+          contactName: params.contactName,
+          source: params.source,
+          priority: params.priority ?? 'NORMAL',
+          event: params.event,
+        },
+      },
+      [params.actorUserId],
+    );
   }
 
   private async findOwned(userId: string, id: string) {

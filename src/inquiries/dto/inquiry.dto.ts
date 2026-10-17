@@ -16,6 +16,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import {
+  InquiryAssignmentStatus,
   InquiryPriority,
   InquirySource,
   InquiryStatus,
@@ -200,4 +201,8 @@ export class InquiryListQueryDto extends ListQueryDto {
   @IsOptional()
   @IsUUID()
   itemId?: string;
+
+  @IsOptional()
+  @IsEnum(InquiryAssignmentStatus)
+  assignmentStatus?: InquiryAssignmentStatus;
 }
