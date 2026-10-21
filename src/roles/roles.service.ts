@@ -44,9 +44,18 @@ export class RolesService {
   }
 
   async create(dto: CreateRoleDto) {
-    const permissions = await this.permissionRepo.find({
-      where: { id: In(dto.permissionIds) },
-    });
+    const permissions =
+      dto.permissionIds.length === 0
+        ? []
+        : await this.permissionRepo.find({
+            where: { id: In(dto.permissionIds) },
+          });
+    if (
+      dto.permissionIds.length > 0 &&
+      permissions.length !== dto.permissionIds.length
+    ) {
+      throw new BadRequestException('One or more permissionIds are invalid');
+    }
     const role = this.roleRepo.create({
       name: dto.name,
       description: dto.description ?? null,
@@ -63,10 +72,19 @@ export class RolesService {
     }
     if (dto.name) role.name = dto.name;
     if (dto.description !== undefined) role.description = dto.description;
-    if (dto.permissionIds) {
-      role.permissions = await this.permissionRepo.find({
-        where: { id: In(dto.permissionIds) },
-      });
+    if (dto.permissionIds !== undefined) {
+      role.permissions =
+        dto.permissionIds.length === 0
+          ? []
+          : await this.permissionRepo.find({
+              where: { id: In(dto.permissionIds) },
+            });
+      if (
+        dto.permissionIds.length > 0 &&
+        role.permissions.length !== dto.permissionIds.length
+      ) {
+        throw new BadRequestException('One or more permissionIds are invalid');
+      }
     }
     return this.roleRepo.save(role);
   }
