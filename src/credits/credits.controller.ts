@@ -81,4 +81,24 @@ export class CreditsController {
   ) {
     return this.service.paySupplierCredit(id, dto, user.sub);
   }
+
+  /** Reverse all bank receipts for this credit and reopen the balance. */
+  @Delete('customers/:id/payments')
+  @RequirePermissions('credit.write')
+  voidCustomerPayments(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.service.voidCustomerCreditPayments(id, user.sub);
+  }
+
+  /** Reverse all bank payments for this credit and reopen the balance. */
+  @Delete('suppliers/:id/payments')
+  @RequirePermissions('credit.write')
+  voidSupplierPayments(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.service.voidSupplierCreditPayments(id, user.sub);
+  }
 }

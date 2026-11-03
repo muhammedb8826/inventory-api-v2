@@ -87,6 +87,59 @@ export class BankLedgerService {
     });
     if (!original) return null;
 
+    return this.reverseOne(original, refType, refId, description, createdById, manager);
+  }
+
+  /**
+   * Reverse every ledger row for a reference (e.g. multiple credit payments
+   * that share the same credit id). Skips rows that already have a paired
+   * reversal keyed by the original transaction id.
+   */
+  async reverseAllByReference(
+    refType: string,
+    refId: string,
+    description: string,
+    createdById?: string,
+    manager?: EntityManager,
+  ) {
+    const { tx } = this.repos(manager);
+    const originals = await tx.find({
+      where: { refType, refId },
+      order: { createdAt: 'ASC' },
+    });
+    if (!originals.length) return [];
+
+    const reversed: BankTransaction[] = [];
+    for (const original of originals) {
+      const already = await tx.findOne({
+        where: {
+          refType: `${refType}_reversal`,
+          refId: original.id,
+        },
+      });
+      if (already) continue;
+
+      const row = await this.reverseOne(
+        original,
+        refType,
+        original.id,
+        description,
+        createdById,
+        manager,
+      );
+      if (row) reversed.push(row);
+    }
+    return reversed;
+  }
+
+  private async reverseOne(
+    original: BankTransaction,
+    refType: string,
+    reversalRefId: string,
+    description: string,
+    createdById?: string,
+    manager?: EntityManager,
+  ) {
     const amount = parseFloat(original.amount);
     const wasIn =
       original.direction === BankTransactionDirection.IN ||
@@ -105,7 +158,7 @@ export class BankLedgerService {
         direction,
         description,
         refType: `${refType}_reversal`,
-        refId,
+        refId: reversalRefId,
         createdById,
       },
       manager,

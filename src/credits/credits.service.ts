@@ -342,6 +342,66 @@ export class CreditsService {
     return credit;
   }
 
+  async voidCustomerCreditPayments(id: string, userId?: string) {
+    return this.dataSource.transaction(async (manager) => {
+      const creditRepo = manager.getRepository(CustomerCredit);
+      const credit = await creditRepo.findOne({
+        where: { id },
+        relations: { customer: true },
+      });
+      if (!credit) throw new NotFoundException('Customer credit not found');
+
+      const paid = parseFloat(credit.paidAmount);
+      if (paid <= 0) {
+        throw new BadRequestException('No payments to void on this credit');
+      }
+
+      const party = credit.customer?.name ?? 'customer';
+      await this.bankLedger.reverseAllByReference(
+        'customer_credit_payment',
+        id,
+        `Void receivable payments — ${party}`,
+        userId,
+        manager,
+      );
+
+      credit.paidAmount = '0.00';
+      credit.balance = parseFloat(credit.amount).toFixed(2);
+      credit.status = CreditStatus.OPEN;
+      return creditRepo.save(credit);
+    });
+  }
+
+  async voidSupplierCreditPayments(id: string, userId?: string) {
+    return this.dataSource.transaction(async (manager) => {
+      const creditRepo = manager.getRepository(SupplierCredit);
+      const credit = await creditRepo.findOne({
+        where: { id },
+        relations: { supplier: true },
+      });
+      if (!credit) throw new NotFoundException('Supplier credit not found');
+
+      const paid = parseFloat(credit.paidAmount);
+      if (paid <= 0) {
+        throw new BadRequestException('No payments to void on this credit');
+      }
+
+      const party = credit.supplier?.name ?? 'supplier';
+      await this.bankLedger.reverseAllByReference(
+        'supplier_credit_payment',
+        id,
+        `Void payable payments — ${party}`,
+        userId,
+        manager,
+      );
+
+      credit.paidAmount = '0.00';
+      credit.balance = parseFloat(credit.amount).toFixed(2);
+      credit.status = CreditStatus.OPEN;
+      return creditRepo.save(credit);
+    });
+  }
+
   async removeOpeningCustomerCredit(id: string) {
     const credit = await this.customerCreditRepo.findOne({ where: { id } });
     if (!credit) throw new NotFoundException('Customer credit not found');
@@ -366,7 +426,7 @@ export class CreditsService {
     }
     if (parseFloat(paidAmount) > 0) {
       throw new BadRequestException(
-        'Cannot delete an opening credit after payments have been applied',
+        'Cannot delete an opening credit after payments have been applied; void payments first',
       );
     }
   }

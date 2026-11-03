@@ -1044,6 +1044,8 @@ Sale responses include `soldByUserId`, `commissionPercent`, `commissionBasis`, `
 | DELETE | `/credits/suppliers/:id` | `credit.write` |
 | POST | `/credits/customers/:id/payments` | `credit.write` |
 | POST | `/credits/suppliers/:id/payments` | `credit.write` |
+| DELETE | `/credits/customers/:id/payments` | `credit.write` (void all payments; reverses bank) |
+| DELETE | `/credits/suppliers/:id/payments` | `credit.write` (void all payments; reverses bank) |
 
 **List query params:** `page`, `limit`, `from`, `to`, `status` (`OPEN` \| `PARTIAL` \| `PAID`), `source` (`SALE` \| `PURCHASE` \| `OPENING`), `search` (name, phone, or `reference`), plus `customerId` on `/credits/customers` or `supplierId` on `/credits/suppliers`.
 
@@ -1072,7 +1074,7 @@ Each credit row includes `source` (`SALE` / `PURCHASE` from documents, or `OPENI
 }
 ```
 
-Collect or pay them with the same payment endpoints as document credits. `DELETE` is allowed only for `source=OPENING` credits with no payments applied.
+Collect or pay them with the same payment endpoints as document credits. `DELETE /credits/.../:id/payments` voids **all** applied payments on that credit: bank ledger rows are reversed (`ADJUSTMENT`), `paidAmount` resets to `0`, and status returns to `OPEN`. After that, `DELETE` on an `OPENING` credit itself is allowed. Opening credits still cannot be deleted while payments remain.
 
 **List response** — paginated rows plus **`totals`** summed across the **filtered** result set (not just the current page):
 
