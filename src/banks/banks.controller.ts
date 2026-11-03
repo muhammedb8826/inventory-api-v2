@@ -10,7 +10,10 @@ import {
 } from '@nestjs/common';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { JwtPayload } from '../common/decorators/current-user.decorator';
-import { RequirePermissions } from '../common/decorators/permissions.decorator';
+import {
+  RequireAnyPermissions,
+  RequirePermissions,
+} from '../common/decorators/permissions.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { BankTransactionsQueryDto } from './dto/bank-transactions-query.dto';
@@ -26,8 +29,18 @@ import { BanksService } from './banks.service';
 export class BanksController {
   constructor(private readonly service: BanksService) {}
 
+  /**
+   * Account picker for bank admin and for payment flows (sales/purchases/credits/expenses).
+   * credit.write / sales.write / etc. can list accounts without full bank.read.
+   */
   @Get('accounts')
-  @RequirePermissions('bank.read')
+  @RequireAnyPermissions(
+    'bank.read',
+    'credit.write',
+    'sales.write',
+    'purchase.write',
+    'expense.write',
+  )
   findAccounts(@Query() query: BankAccountsQueryDto) {
     return this.service.findAccounts({
       type: query.type,

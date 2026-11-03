@@ -167,13 +167,12 @@ export class CreditsService {
   }
 
   async payCustomerCredit(id: string, dto: CreditPaymentDto, userId?: string) {
-    if (!dto.bankAccountId) {
-      throw new BadRequestException('bankAccountId required');
-    }
-
     return this.dataSource.transaction(async (manager) => {
       const creditRepo = manager.getRepository(CustomerCredit);
-      const credit = await creditRepo.findOne({ where: { id } });
+      const credit = await creditRepo.findOne({
+        where: { id },
+        relations: { customer: true },
+      });
       if (!credit) throw new NotFoundException('Customer credit not found');
 
       const balance = parseFloat(credit.balance);
@@ -181,13 +180,18 @@ export class CreditsService {
         throw new BadRequestException('Payment exceeds balance');
       }
 
+      const party = credit.customer?.name ?? 'customer';
+      const sourceLabel =
+        credit.source === CreditSource.OPENING ? 'opening receivable' : 'receivable';
+
+      // Money in: customer settles AR (including opening cutover balances).
       await this.bankLedger.recordTransaction(
         {
-          bankAccountId: dto.bankAccountId!,
+          bankAccountId: dto.bankAccountId,
           type: BankTransactionType.CREDIT_RECEIPT,
           amount: dto.amount,
           direction: 'in',
-          description: `Customer credit payment ${id}`,
+          description: `${sourceLabel} payment — ${party}`,
           refType: 'customer_credit_payment',
           refId: id,
           createdById: userId,
@@ -211,13 +215,12 @@ export class CreditsService {
   }
 
   async paySupplierCredit(id: string, dto: CreditPaymentDto, userId?: string) {
-    if (!dto.bankAccountId) {
-      throw new BadRequestException('bankAccountId required');
-    }
-
     return this.dataSource.transaction(async (manager) => {
       const creditRepo = manager.getRepository(SupplierCredit);
-      const credit = await creditRepo.findOne({ where: { id } });
+      const credit = await creditRepo.findOne({
+        where: { id },
+        relations: { supplier: true },
+      });
       if (!credit) throw new NotFoundException('Supplier credit not found');
 
       const balance = parseFloat(credit.balance);
@@ -225,13 +228,18 @@ export class CreditsService {
         throw new BadRequestException('Payment exceeds balance');
       }
 
+      const party = credit.supplier?.name ?? 'supplier';
+      const sourceLabel =
+        credit.source === CreditSource.OPENING ? 'opening payable' : 'payable';
+
+      // Money out: we settle AP (including opening cutover balances).
       await this.bankLedger.recordTransaction(
         {
-          bankAccountId: dto.bankAccountId!,
+          bankAccountId: dto.bankAccountId,
           type: BankTransactionType.CREDIT_PAYMENT,
           amount: dto.amount,
           direction: 'out',
-          description: `Supplier credit payment ${id}`,
+          description: `${sourceLabel} payment — ${party}`,
           refType: 'supplier_credit_payment',
           refId: id,
           createdById: userId,

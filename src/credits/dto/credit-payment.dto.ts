@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsNumber, IsOptional, IsUUID, Min } from 'class-validator';
+import { IsNumber, IsUUID, Min } from 'class-validator';
 
 export class CreditPaymentDto {
   @Type(() => Number)
@@ -7,7 +7,7 @@ export class CreditPaymentDto {
   @Min(0.01)
   amount: number;
 
-  @IsOptional()
+  /** Cash/bank account that receives (customer) or pays (supplier) the amount. */
   @IsUUID()
-  bankAccountId?: string;
+  bankAccountId: string;
 }

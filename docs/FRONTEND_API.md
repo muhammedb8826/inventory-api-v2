@@ -1047,7 +1047,7 @@ Sale responses include `soldByUserId`, `commissionPercent`, `commissionBasis`, `
 
 **List query params:** `page`, `limit`, `from`, `to`, `status` (`OPEN` \| `PARTIAL` \| `PAID`), `source` (`SALE` \| `PURCHASE` \| `OPENING`), `search` (name, phone, or `reference`), plus `customerId` on `/credits/customers` or `supplierId` on `/credits/suppliers`.
 
-Each credit row includes `source` (`SALE` / `PURCHASE` from documents, or `OPENING` for cutover AR/AP), optional `reference` (prior-system invoice number), and optional `notes`. Opening credits have `saleId` / `purchaseId` `null` and do **not** change stock or cash until a payment is recorded.
+Each credit row includes `source` (`SALE` / `PURCHASE` from documents, or `OPENING` for cutover AR/AP), optional `reference` (prior-system invoice number), and optional `notes`. Opening credits have `saleId` / `purchaseId` `null` and do **not** change stock or cash until a payment is recorded. Payments use the same endpoints and **require** `bankAccountId`: customer receipts increase the bank balance (`CREDIT_RECEIPT` / `in`); supplier payments deduct from it (`CREDIT_PAYMENT` / `out`).
 
 **Opening customer receivable (cutover AR)** — `POST /credits/customers`
 
