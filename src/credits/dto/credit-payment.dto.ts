@@ -1,5 +1,12 @@
 import { Type } from 'class-transformer';
-import { IsNumber, IsUUID, Min } from 'class-validator';
+import {
+  IsNumber,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+  Min,
+} from 'class-validator';
 
 export class CreditPaymentDto {
   @Type(() => Number)
@@ -10,4 +17,10 @@ export class CreditPaymentDto {
   /** Cash/bank account that receives (customer) or pays (supplier) the amount. */
   @IsUUID()
   bankAccountId: string;
+
+  /** Optional installment / remittance note (e.g. "Term 2 of 3"). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  notes?: string;
 }

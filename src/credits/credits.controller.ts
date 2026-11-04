@@ -38,6 +38,30 @@ export class CreditsController {
     return this.service.findSupplierCredits(query);
   }
 
+  @Get('customers/:id')
+  @RequirePermissions('credit.read')
+  customerCredit(@Param('id') id: string) {
+    return this.service.findCustomerCredit(id);
+  }
+
+  @Get('suppliers/:id')
+  @RequirePermissions('credit.read')
+  supplierCredit(@Param('id') id: string) {
+    return this.service.findSupplierCredit(id);
+  }
+
+  @Get('customers/:id/payments')
+  @RequirePermissions('credit.read')
+  customerPayments(@Param('id') id: string) {
+    return this.service.listCustomerPayments(id);
+  }
+
+  @Get('suppliers/:id/payments')
+  @RequirePermissions('credit.read')
+  supplierPayments(@Param('id') id: string) {
+    return this.service.listSupplierPayments(id);
+  }
+
   @Post('customers')
   @RequirePermissions('credit.write')
   createOpeningCustomer(@Body() dto: CreateOpeningCustomerCreditDto) {
@@ -80,6 +104,27 @@ export class CreditsController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.service.paySupplierCredit(id, dto, user.sub);
+  }
+
+  /** Reverse one installment and reopen that portion of the balance. */
+  @Delete('customers/:id/payments/:paymentId')
+  @RequirePermissions('credit.write')
+  voidCustomerPayment(
+    @Param('id') id: string,
+    @Param('paymentId') paymentId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.service.voidCustomerPayment(id, paymentId, user.sub);
+  }
+
+  @Delete('suppliers/:id/payments/:paymentId')
+  @RequirePermissions('credit.write')
+  voidSupplierPayment(
+    @Param('id') id: string,
+    @Param('paymentId') paymentId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.service.voidSupplierPayment(id, paymentId, user.sub);
   }
 
   /** Reverse all bank receipts for this credit and reopen the balance. */

@@ -1038,18 +1038,58 @@ Sale responses include `soldByUserId`, `commissionPercent`, `commissionBasis`, `
 |--------|------|------------|
 | GET | `/credits/customers` | `credit.read` |
 | GET | `/credits/suppliers` | `credit.read` |
+| GET | `/credits/customers/:id` | `credit.read` |
+| GET | `/credits/suppliers/:id` | `credit.read` |
+| GET | `/credits/customers/:id/payments` | `credit.read` (installment / remittance list) |
+| GET | `/credits/suppliers/:id/payments` | `credit.read` |
 | POST | `/credits/customers` | `credit.write` |
 | POST | `/credits/suppliers` | `credit.write` |
 | DELETE | `/credits/customers/:id` | `credit.write` |
 | DELETE | `/credits/suppliers/:id` | `credit.write` |
 | POST | `/credits/customers/:id/payments` | `credit.write` |
 | POST | `/credits/suppliers/:id/payments` | `credit.write` |
+| DELETE | `/credits/customers/:id/payments/:paymentId` | `credit.write` (void one installment) |
+| DELETE | `/credits/suppliers/:id/payments/:paymentId` | `credit.write` |
 | DELETE | `/credits/customers/:id/payments` | `credit.write` (void all payments; reverses bank) |
 | DELETE | `/credits/suppliers/:id/payments` | `credit.write` (void all payments; reverses bank) |
 
 **List query params:** `page`, `limit`, `from`, `to`, `status` (`OPEN` \| `PARTIAL` \| `PAID`), `source` (`SALE` \| `PURCHASE` \| `OPENING`), `search` (name, phone, or `reference`), plus `customerId` on `/credits/customers` or `supplierId` on `/credits/suppliers`.
 
-Each credit row includes `source` (`SALE` / `PURCHASE` from documents, or `OPENING` for cutover AR/AP), optional `reference` (prior-system invoice number), and optional `notes`. Opening credits have `saleId` / `purchaseId` `null` and do **not** change stock or cash until a payment is recorded. Payments use the same endpoints and **require** `bankAccountId`: customer receipts increase the bank balance (`CREDIT_RECEIPT` / `in`); supplier payments deduct from it (`CREDIT_PAYMENT` / `out`).
+Each credit row includes `source` (`SALE` / `PURCHASE` from documents, or `OPENING` for cutover AR/AP), optional `reference` (prior-system invoice number), and optional `notes`. Opening credits have `saleId` / `purchaseId` `null` and do **not** change stock or cash until a payment is recorded.
+
+**Detail** — `GET /credits/customers/:id` and `GET /credits/suppliers/:id` return the credit with party and linked sale/purchase.
+
+**Payment schedule (industry installments)** — Keep one credit open and post multiple payments against it (e.g. three terms = three `POST …/payments`). Each payment is a bank ledger row; `GET …/:id/payments` returns them in order:
+
+```json
+{
+  "data": [
+    {
+      "id": "uuid",
+      "sequence": 1,
+      "amount": "1000.00",
+      "bankAccountId": "uuid",
+      "bankAccountName": "Main cash",
+      "description": "opening receivable payment #1 — Acme · Term 1 of 3",
+      "notes": "Term 1 of 3",
+      "status": "POSTED",
+      "createdAt": "…",
+      "createdById": "uuid"
+    }
+  ],
+  "totals": { "paid": "1000.00", "voided": "0.00" }
+}
+```
+
+`status` is `POSTED` or `VOIDED` (when that installment was reversed). Void one with `DELETE …/payments/:paymentId`, or all with `DELETE …/payments`.
+
+**Record payment** — `POST …/:id/payments` body:
+
+```json
+{ "amount": 1000, "bankAccountId": "uuid", "notes": "Term 2 of 3" }
+```
+
+`notes` is optional. Response: `{ "credit": { …updated… }, "payment": { …bank tx… } }`. Customer receipts increase the bank balance (`CREDIT_RECEIPT` / `in`); supplier payments deduct from it (`CREDIT_PAYMENT` / `out`).
 
 **Opening customer receivable (cutover AR)** — `POST /credits/customers`
 

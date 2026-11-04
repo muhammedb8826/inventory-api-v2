@@ -132,6 +132,35 @@ export class BankLedgerService {
     return reversed;
   }
 
+  /** Reverse one ledger row by id (idempotent if already reversed). */
+  async reverseById(
+    transactionId: string,
+    description: string,
+    createdById?: string,
+    manager?: EntityManager,
+  ) {
+    const { tx } = this.repos(manager);
+    const original = await tx.findOne({ where: { id: transactionId } });
+    if (!original || !original.refType) return null;
+
+    const already = await tx.findOne({
+      where: {
+        refType: `${original.refType}_reversal`,
+        refId: original.id,
+      },
+    });
+    if (already) return already;
+
+    return this.reverseOne(
+      original,
+      original.refType,
+      original.id,
+      description,
+      createdById,
+      manager,
+    );
+  }
+
   private async reverseOne(
     original: BankTransaction,
     refType: string,

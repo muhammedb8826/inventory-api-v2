@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { BanksModule } from '../banks/banks.module';
+import { BankTransaction } from '../database/entities/bank-transaction.entity';
 import { Customer } from '../database/entities/customer.entity';
 import { CustomerCredit } from '../database/entities/customer-credit.entity';
 import { Supplier } from '../database/entities/supplier.entity';
@@ -16,6 +17,7 @@ import { CreditsService } from './credits.service';
       SupplierCredit,
       Customer,
       Supplier,
+      BankTransaction,
     ]),
     BanksModule,
     NotificationsModule,
