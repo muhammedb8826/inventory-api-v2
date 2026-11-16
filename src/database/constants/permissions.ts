@@ -97,6 +97,16 @@ export const PERMISSION_DEFINITIONS = [
   },
   { code: 'uom.read', name: 'View units of measure', module: 'uom' },
   { code: 'uom.write', name: 'Manage units of measure', module: 'uom' },
+  {
+    code: 'attributes.read',
+    name: 'View product attributes',
+    module: 'attributes',
+  },
+  {
+    code: 'attributes.write',
+    name: 'Manage product attributes',
+    module: 'attributes',
+  },
 ] as const;
 
 export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
@@ -118,6 +128,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'locations.read',
     'inventory.read',
     'uom.read',
+    'attributes.read',
   ],
   Purchaser: [
     'purchase.read',
@@ -130,6 +141,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'inventory.read',
     'locations.read',
     'uom.read',
+    'attributes.read',
   ],
   'Stock Keeper': [
     'inventory.read',
@@ -145,5 +157,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'locations.read',
     'uom.read',
     'uom.write',
+    'attributes.read',
+    'attributes.write',
   ],
 };

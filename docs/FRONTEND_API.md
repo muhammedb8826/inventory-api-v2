@@ -369,12 +369,15 @@ ERP-style configurable units with conversions. Stock is always stored in the ite
 | Method | Path | Permission |
 |--------|------|------------|
 | GET | `/uom/categories` | `uom.read` |
+| GET | `/uom/categories/:id` | `uom.read` |
 | POST | `/uom/categories` | `uom.write` |
 | PATCH | `/uom/categories/:id` | `uom.write` |
+| DELETE | `/uom/categories/:id` | `uom.write` (blocked if any unit is in use) |
 | GET | `/uom/units?categoryId=` | `uom.read` |
 | GET | `/uom/units/:id` | `uom.read` |
 | POST | `/uom/units` | `uom.write` |
 | PATCH | `/uom/units/:id` | `uom.write` |
+| DELETE | `/uom/units/:id` | `uom.write` (blocked if in use) |
 | GET | `/uom/items/:itemId` | `uom.read` (item-specific conversions) |
 | POST | `/uom/items/:itemId` | `uom.write` body `{ uomId, conversionFactor }` |
 | DELETE | `/uom/items/:itemId/:uomId` | `uom.write` |
@@ -392,6 +395,29 @@ Examples: Pcs=`1`, Pack=`12` → `1 pck = 12 pcs`. Meter=`1`, cm=`0.01` → `1 c
 **Document lines** (sale / purchase / BOM): optional `uomId`; response includes `stockQuantity` used for inventory. Unit price is per **transaction** UOM.
 
 **Length sold / Area stocked (fabric, carpet):** set stock UOM = `sqm`, sales UOM = `m`, `uomWidth` = roll width in meters (e.g. `1.5`). Selling `2 m` deducts `3 sqm`.
+
+---
+
+## Product attributes
+
+| Method | Path | Permission |
+| GET | `/attributes?includeInactive=` | `attributes.read` |
+| GET | `/attributes/:id` | `attributes.read` |
+| POST | `/attributes` | `attributes.write` |
+| PATCH | `/attributes/:id` | `attributes.write` |
+| DELETE | `/attributes/:id` | `attributes.write` |
+| GET | `/attributes/:id/values` | `attributes.read` |
+| POST | `/attributes/values` | `attributes.write` |
+| PATCH | `/attributes/values/:valueId` | `attributes.write` |
+| DELETE | `/attributes/values/:valueId` | `attributes.write` |
+
+**Seeded:** `COLOR` (Black, White, Red, …) and `SIZE` (XS…4XL).
+
+**Attribute body:** `{ code, name, description?, displayType?: "select"|"radio"|"color", sequence?, isActive? }`
+
+**Value body:** `{ attributeId, code, name, colorHex?, sequence?, isActive? }`
+
+Attributes are masters for options like color/size. Linking to items / generating variant SKUs is a follow-up.
 
 ---
 

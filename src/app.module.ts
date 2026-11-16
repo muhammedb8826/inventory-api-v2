@@ -27,6 +27,7 @@ import { SettingsModule } from './settings/settings.module';
 import { StockTransfersModule } from './stock-transfers/stock-transfers.module';
 import { SuppliersModule } from './suppliers/suppliers.module';
 import { UomModule } from './uom/uom.module';
+import { AttributesModule } from './attributes/attributes.module';
 import { UsersModule } from './users/users.module';
 import { HealthController } from './health.controller';
 
@@ -61,6 +62,7 @@ import { HealthController } from './health.controller';
     ReportsModule,
     SettingsModule,
     UomModule,
+    AttributesModule,
   ],
   controllers: [HealthController],
 })

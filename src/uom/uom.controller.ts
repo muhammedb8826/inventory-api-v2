@@ -51,6 +51,12 @@ export class UomController {
     return this.service.updateCategory(id, dto);
   }
 
+  @Delete('categories/:id')
+  @RequirePermissions('uom.write')
+  deleteCategory(@Param('id') id: string) {
+    return this.service.deleteCategory(id);
+  }
+
   @Get('units')
   @RequirePermissions('uom.read')
   units(

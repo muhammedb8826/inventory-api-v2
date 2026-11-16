@@ -151,14 +151,14 @@ export class UomService implements OnModuleInit {
     await this.ensureStandards();
   }
 
-  /** Idempotent seed of ERP-standard categories and units. */
+  /**
+   * Seed ERP-standard categories only on an empty catalog so user deletes stay gone.
+   */
   async ensureStandards() {
-    for (const cat of STANDARD_CATEGORIES) {
-      let category = await this.categoryRepo.findOne({
-        where: { code: cat.code },
-      });
-      if (!category) {
-        category = await this.categoryRepo.save(
+    const existingCount = await this.categoryRepo.count();
+    if (existingCount === 0) {
+      for (const cat of STANDARD_CATEGORIES) {
+        const category = await this.categoryRepo.save(
           this.categoryRepo.create({
             id: randomUUID(),
             code: cat.code,
@@ -167,25 +167,21 @@ export class UomService implements OnModuleInit {
             isActive: true,
           }),
         );
-      }
 
-      for (const u of cat.uoms) {
-        const existing = await this.uomRepo.findOne({
-          where: { code: u.code },
-        });
-        if (existing) continue;
-        await this.uomRepo.save(
-          this.uomRepo.create({
-            id: randomUUID(),
-            categoryId: category.id,
-            code: u.code,
-            name: u.name,
-            symbol: u.symbol,
-            conversionFactor: u.conversionFactor.toFixed(9),
-            isBase: Boolean(u.isBase),
-            isActive: true,
-          }),
-        );
+        for (const u of cat.uoms) {
+          await this.uomRepo.save(
+            this.uomRepo.create({
+              id: randomUUID(),
+              categoryId: category.id,
+              code: u.code,
+              name: u.name,
+              symbol: u.symbol,
+              conversionFactor: u.conversionFactor.toFixed(9),
+              isBase: Boolean(u.isBase),
+              isActive: true,
+            }),
+          );
+        }
       }
     }
 
@@ -282,6 +278,19 @@ export class UomService implements OnModuleInit {
     return this.categoryRepo.save(row);
   }
 
+  async deleteCategory(id: string) {
+    const category = await this.findCategory(id, true);
+    const units = category.uoms ?? [];
+    for (const uom of units) {
+      await this.assertUomUnused(uom.id);
+    }
+    if (units.length) {
+      await this.uomRepo.remove(units);
+    }
+    await this.categoryRepo.remove(category);
+    return { success: true };
+  }
+
   async createUom(dto: CreateUomDto) {
     const category = await this.categoryRepo.findOne({
       where: { id: dto.categoryId },
@@ -336,6 +345,12 @@ export class UomService implements OnModuleInit {
 
   async deleteUom(id: string) {
     const row = await this.findUom(id);
+    await this.assertUomUnused(id);
+    await this.uomRepo.remove(row);
+    return { success: true };
+  }
+
+  private async assertUomUnused(id: string) {
     const usage = await this.uomRepo.query(
       `
       SELECT (
@@ -352,11 +367,9 @@ export class UomService implements OnModuleInit {
     const count = Number(usage?.[0]?.count ?? 0);
     if (count > 0) {
       throw new BadRequestException(
-        'Cannot delete this unit because it is used on items or documents',
+        'Cannot delete because this unit is used on items or documents',
       );
     }
-    await this.uomRepo.remove(row);
-    return { success: true };
   }
 
   async listItemUoms(itemId: string) {
