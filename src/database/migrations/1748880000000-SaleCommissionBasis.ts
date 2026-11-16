@@ -1,9 +1,12 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import { tableExists } from '../migration.util';
 
 export class SaleCommissionBasis1748880000000 implements MigrationInterface {
   name = 'SaleCommissionBasis1748880000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    if (!(await tableExists(queryRunner, 'sales'))) return;
+
     await queryRunner.query(`
       DO $$ BEGIN
         CREATE TYPE "sales_commission_basis_enum" AS ENUM ('PROFIT', 'SALES');

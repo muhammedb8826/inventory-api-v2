@@ -9,6 +9,7 @@ export class NotificationInquiryType1748950000000 implements MigrationInterface 
         ALTER TYPE "notifications_type_enum" ADD VALUE IF NOT EXISTS 'INQUIRY';
       EXCEPTION
         WHEN duplicate_object THEN NULL;
+        WHEN undefined_object THEN NULL;
       END $$;
     `);
   }

@@ -1,9 +1,12 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import { tableExists } from '../migration.util';
 
 export class BankTransactionDirection1748910000000 implements MigrationInterface {
   name = 'BankTransactionDirection1748910000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    if (!(await tableExists(queryRunner, 'bank_transactions'))) return;
+
     await queryRunner.query(`
       DO $$ BEGIN
         CREATE TYPE "bank_transactions_direction_enum" AS ENUM ('in', 'out');

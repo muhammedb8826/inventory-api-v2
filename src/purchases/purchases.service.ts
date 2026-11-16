@@ -28,6 +28,20 @@ import { StockService } from '../inventory/stock.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CreatePurchaseDto, PurchaseLineDto } from './dto/purchase.dto';
 import { UpdatePurchaseDto } from './dto/update-purchase.dto';
+import { UomConversionService } from '../uom/uom-conversion.service';
+import { loadItemForUom, resolveLineUom } from '../uom/resolve-line-uom';
+
+function stockQtyOf(line: {
+  quantity: string | number;
+  stockQuantity?: string | null;
+}): number {
+  if (line.stockQuantity != null && line.stockQuantity !== '') {
+    return parseFloat(String(line.stockQuantity));
+  }
+  return typeof line.quantity === 'number'
+    ? line.quantity
+    : parseFloat(line.quantity);
+}
 
 @Injectable()
 export class PurchasesService {
@@ -40,6 +54,7 @@ export class PurchasesService {
     private readonly bankLedger: BankLedgerService,
     private readonly banksService: BanksService,
     private readonly notifications: NotificationsService,
+    private readonly uomConversion: UomConversionService,
   ) {}
 
   async findAll(query: PurchaseListQueryDto) {
@@ -134,6 +149,7 @@ export class PurchasesService {
     return purchase.lines.map((l) => ({
       itemId: l.itemId,
       quantity: parseFloat(l.quantity),
+      uomId: l.uomId ?? undefined,
       unitPrice: parseFloat(l.unitPrice),
     }));
   }
@@ -223,7 +239,7 @@ export class PurchasesService {
           {
             locationId: oldLocationId,
             itemId: line.itemId,
-            quantityDelta: -parseFloat(line.quantity),
+            quantityDelta: -stockQtyOf(line),
           },
           manager,
         );
@@ -245,6 +261,30 @@ export class PurchasesService {
 
       await lineRepo.delete({ purchaseId: purchase.id });
 
+      const resolved: {
+        line: PurchaseLineDto;
+        stockQuantity: number;
+        uomId: string | null;
+      }[] = [];
+      for (const l of lines) {
+        const item = await loadItemForUom(manager, l.itemId);
+        if (!item) {
+          throw new BadRequestException(`Item not found: ${l.itemId}`);
+        }
+        const r = await resolveLineUom(
+          this.uomConversion,
+          item,
+          'purchase',
+          l.quantity,
+          l.uomId,
+        );
+        resolved.push({
+          line: l,
+          stockQuantity: r.stockQuantity,
+          uomId: r.uomId,
+        });
+      }
+
       purchase.supplierId = supplierId;
       purchase.locationId = locationId;
       purchase.paymentMethod = paymentMethod;
@@ -252,11 +292,13 @@ export class PurchasesService {
       purchase.subtotal = subtotal.toFixed(2);
       purchase.total = subtotal.toFixed(2);
       purchase.notes = notes;
-      purchase.lines = lines.map((l) => {
+      purchase.lines = resolved.map(({ line: l, stockQuantity, uomId }) => {
         const lineTotal = l.quantity * l.unitPrice;
         return Object.assign(new PurchaseLine(), {
           itemId: l.itemId,
           quantity: l.quantity.toFixed(3),
+          uomId,
+          stockQuantity: stockQuantity.toFixed(3),
           unitPrice: l.unitPrice.toFixed(2),
           lineTotal: lineTotal.toFixed(2),
         });
@@ -264,13 +306,17 @@ export class PurchasesService {
 
       await purchaseRepo.save(purchase);
 
-      for (const line of lines) {
+      for (const { line, stockQuantity } of resolved) {
+        const stockUnitCost =
+          stockQuantity > 0
+            ? (line.quantity * line.unitPrice) / stockQuantity
+            : line.unitPrice;
         await this.stockService.adjust(
           {
             locationId,
             itemId: line.itemId,
-            quantityDelta: line.quantity,
-            purchasePrice: line.unitPrice,
+            quantityDelta: stockQuantity,
+            purchasePrice: stockUnitCost,
           },
           manager,
         );
@@ -340,7 +386,7 @@ export class PurchasesService {
           {
             locationId: purchase.locationId,
             itemId: line.itemId,
-            quantityDelta: -parseFloat(line.quantity),
+            quantityDelta: -stockQtyOf(line),
           },
           manager,
         );
@@ -394,11 +440,37 @@ export class PurchasesService {
       const purchaseRepo = manager.getRepository(Purchase);
       const creditRepo = manager.getRepository(SupplierCredit);
 
-      const lines = dto.lines.map((l) => {
+      const resolved: {
+        line: PurchaseLineDto;
+        stockQuantity: number;
+        uomId: string | null;
+      }[] = [];
+      for (const l of dto.lines) {
+        const item = await loadItemForUom(manager, l.itemId);
+        if (!item) {
+          throw new BadRequestException(`Item not found: ${l.itemId}`);
+        }
+        const r = await resolveLineUom(
+          this.uomConversion,
+          item,
+          'purchase',
+          l.quantity,
+          l.uomId,
+        );
+        resolved.push({
+          line: l,
+          stockQuantity: r.stockQuantity,
+          uomId: r.uomId,
+        });
+      }
+
+      const lines = resolved.map(({ line: l, stockQuantity, uomId }) => {
         const lineTotal = l.quantity * l.unitPrice;
         return Object.assign(new PurchaseLine(), {
           itemId: l.itemId,
           quantity: l.quantity.toFixed(3),
+          uomId,
+          stockQuantity: stockQuantity.toFixed(3),
           unitPrice: l.unitPrice.toFixed(2),
           lineTotal: lineTotal.toFixed(2),
         });
@@ -419,13 +491,18 @@ export class PurchasesService {
         }),
       );
 
-      for (const line of dto.lines) {
+      for (const { line, stockQuantity } of resolved) {
+        // purchasePrice is per transaction UOM; convert to stock-UOM cost
+        const stockUnitCost =
+          stockQuantity > 0
+            ? (line.quantity * line.unitPrice) / stockQuantity
+            : line.unitPrice;
         await this.stockService.adjust(
           {
             locationId: dto.locationId,
             itemId: line.itemId,
-            quantityDelta: line.quantity,
-            purchasePrice: line.unitPrice,
+            quantityDelta: stockQuantity,
+            purchasePrice: stockUnitCost,
           },
           manager,
         );

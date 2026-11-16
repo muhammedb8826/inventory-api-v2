@@ -25,6 +25,11 @@ export class BomLineDto {
   @Min(0.001)
   quantity: number;
 
+  /** Component UOM; defaults to component stock UOM. */
+  @IsOptional()
+  @IsUUID()
+  uomId?: string;
+
   @IsOptional()
   @Type(() => Number)
   @IsNumber()

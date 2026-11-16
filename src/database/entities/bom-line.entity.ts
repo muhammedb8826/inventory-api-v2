@@ -9,6 +9,7 @@ import {
 import { randomUUID } from 'crypto';
 import { Item } from './item.entity';
 import { Bom } from './bom.entity';
+import { Uom } from './uom.entity';
 
 @Entity('bom_lines')
 export class BomLine {
@@ -26,9 +27,22 @@ export class BomLine {
   @Column({ name: 'component_item_id', type: 'uuid' })
   componentItemId: string;
 
-  /** Quantity of component required to make 1 finished unit. */
+  /** Quantity of component (in `uomId`) required to make 1 finished unit. */
   @Column({ type: 'decimal', precision: 14, scale: 3 })
   quantity: string;
+
+  @Column({ name: 'uom_id', type: 'uuid', nullable: true })
+  uomId: string | null;
+
+  /** Quantity in the component item's stock UOM (after conversion + scrap). */
+  @Column({
+    name: 'stock_quantity',
+    type: 'decimal',
+    precision: 14,
+    scale: 3,
+    nullable: true,
+  })
+  stockQuantity: string | null;
 
   @Column({
     name: 'scrap_percent',
@@ -46,4 +60,8 @@ export class BomLine {
   @ManyToOne(() => Item)
   @JoinColumn({ name: 'component_item_id' })
   componentItem: Item;
+
+  @ManyToOne(() => Uom, { nullable: true })
+  @JoinColumn({ name: 'uom_id' })
+  uom: Uom | null;
 }

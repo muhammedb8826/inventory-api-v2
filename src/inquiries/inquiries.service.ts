@@ -158,8 +158,7 @@ export class InquiriesService {
       this.lineRepo.create({
         inquiryId,
         itemId: line.itemId,
-        quantity:
-          line.quantity !== undefined ? line.quantity.toFixed(3) : null,
+        quantity: line.quantity !== undefined ? line.quantity.toFixed(3) : null,
         notes: line.notes?.trim() || null,
       }),
     );
@@ -419,10 +418,7 @@ export class InquiriesService {
     if (dto.lines !== undefined) {
       await this.replaceLines(id, dto.lines);
     } else if (dto.itemId !== undefined) {
-      await this.replaceLines(
-        id,
-        dto.itemId ? [{ itemId: dto.itemId }] : [],
-      );
+      await this.replaceLines(id, dto.itemId ? [{ itemId: dto.itemId }] : []);
     }
 
     if (assigneeChanged) {
@@ -464,7 +460,9 @@ export class InquiriesService {
   async decline(id: string, userId: string) {
     const row = await this.findOne(id);
     if (row.assignedToUserId !== userId) {
-      throw new ForbiddenException('Only the assignee can decline this inquiry');
+      throw new ForbiddenException(
+        'Only the assignee can decline this inquiry',
+      );
     }
     if (row.assignmentStatus !== InquiryAssignmentStatus.PENDING) {
       throw new BadRequestException('Inquiry is not pending acceptance');

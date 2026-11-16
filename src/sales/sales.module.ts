@@ -6,6 +6,7 @@ import { Sale } from '../database/entities/sale.entity';
 import { User } from '../database/entities/user.entity';
 import { InventoryModule } from '../inventory/inventory.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { UomModule } from '../uom/uom.module';
 import { SalesController } from './sales.controller';
 import { SalesService } from './sales.service';
 
@@ -15,6 +16,7 @@ import { SalesService } from './sales.service';
     InventoryModule,
     BanksModule,
     NotificationsModule,
+    UomModule,
   ],
   controllers: [SalesController],
   providers: [SalesService],

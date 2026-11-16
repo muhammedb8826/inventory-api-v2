@@ -87,7 +87,14 @@ export class BankLedgerService {
     });
     if (!original) return null;
 
-    return this.reverseOne(original, refType, refId, description, createdById, manager);
+    return this.reverseOne(
+      original,
+      refType,
+      refId,
+      description,
+      createdById,
+      manager,
+    );
   }
 
   /**

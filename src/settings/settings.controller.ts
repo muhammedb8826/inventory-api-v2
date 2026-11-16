@@ -50,10 +50,7 @@ export class SettingsController {
       limits: { fileSize: 5 * 1024 * 1024 },
     }),
   )
-  uploadHero(
-    @Req() req: Request,
-    @UploadedFile() file: Express.Multer.File,
-  ) {
+  uploadHero(@Req() req: Request, @UploadedFile() file: Express.Multer.File) {
     return this.settings.uploadHeroImage(file, requestBaseUrl(req));
   }
 

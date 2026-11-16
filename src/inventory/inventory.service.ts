@@ -44,6 +44,7 @@ import type {
   UploadedExcelFile,
   UploadedImageFile,
 } from './dto/uploaded-file.interface';
+import { UomService } from '../uom/uom.service';
 
 const ITEM_IMAGE_MIME: Record<string, string> = {
   'image/jpeg': '.jpg',
@@ -80,7 +81,65 @@ export class InventoryService {
     private readonly stockService: StockService,
     private readonly lowStockService: LowStockService,
     private readonly config: ConfigService,
+    private readonly uomService: UomService,
   ) {}
+
+  private async applyItemUoms(
+    item: Item,
+    fields: {
+      unit?: string | null;
+      stockUomId?: string | null;
+      salesUomId?: string | null;
+      purchaseUomId?: string | null;
+      uomWidth?: number | null;
+    },
+  ) {
+    if (fields.stockUomId !== undefined) {
+      if (fields.stockUomId) {
+        const uom = await this.uomService.findUom(fields.stockUomId);
+        item.stockUomId = uom.id;
+        item.unit = uom.symbol;
+      } else {
+        item.stockUomId = null;
+      }
+    }
+    if (fields.salesUomId !== undefined) {
+      if (fields.salesUomId) {
+        await this.uomService.findUom(fields.salesUomId);
+        item.salesUomId = fields.salesUomId;
+      } else {
+        item.salesUomId = null;
+      }
+    }
+    if (fields.purchaseUomId !== undefined) {
+      if (fields.purchaseUomId) {
+        await this.uomService.findUom(fields.purchaseUomId);
+        item.purchaseUomId = fields.purchaseUomId;
+      } else {
+        item.purchaseUomId = null;
+      }
+    }
+    if (fields.uomWidth !== undefined) {
+      item.uomWidth =
+        fields.uomWidth === null ? null : fields.uomWidth.toFixed(9);
+    }
+    if (fields.unit !== undefined && fields.stockUomId === undefined) {
+      item.unit =
+        fields.unit === null || fields.unit.trim() === ''
+          ? null
+          : fields.unit.trim();
+      // Best-effort map free-text unit to a known UOM code/symbol
+      if (item.unit && !item.stockUomId) {
+        const byCode = await this.uomService.findByCode(item.unit);
+        if (byCode) {
+          item.stockUomId = byCode.id;
+          item.salesUomId = item.salesUomId ?? byCode.id;
+          item.purchaseUomId = item.purchaseUomId ?? byCode.id;
+          item.unit = byCode.symbol;
+        }
+      }
+    }
+  }
 
   private mediaBase(requestBaseUrl?: string) {
     return {
@@ -135,6 +194,9 @@ export class InventoryService {
         filteredQb
           .clone()
           .leftJoinAndSelect('stock.item', 'item')
+          .leftJoinAndSelect('item.stockUom', 'stockUom')
+          .leftJoinAndSelect('item.salesUom', 'salesUom')
+          .leftJoinAndSelect('item.purchaseUom', 'purchaseUom')
           .leftJoinAndSelect('stock.location', 'location')
           .orderBy('stock.updated_at', 'DESC'),
         query.page,
@@ -185,7 +247,15 @@ export class InventoryService {
   async findOne(id: string, requestBaseUrl?: string) {
     const stock = await this.stockRepo.findOne({
       where: { id },
-      relations: { item: true, location: true },
+      relations: {
+        item: {
+          stockUom: { category: true },
+          salesUom: true,
+          purchaseUom: true,
+          itemUoms: { uom: true },
+        },
+        location: true,
+      },
     });
     if (!stock) throw new NotFoundException('Inventory record not found');
     return this.attachItemImageUrl(stock, requestBaseUrl);
@@ -197,14 +267,30 @@ export class InventoryService {
       ? await this.itemRepo.findOne({ where: { sku: dto.sku } })
       : null;
     if (!item) {
-      item = await this.itemRepo.save(
-        this.itemRepo.create({
-          sku: dto.sku ?? null,
-          description: dto.description,
-          unit: dto.unit ?? null,
-          itemType: dto.itemType,
-        }),
-      );
+      item = this.itemRepo.create({
+        sku: dto.sku ?? null,
+        description: dto.description,
+        unit: dto.unit ?? null,
+        itemType: dto.itemType,
+      });
+      await this.applyItemUoms(item, {
+        unit: dto.unit,
+        stockUomId: dto.stockUomId,
+        salesUomId: dto.salesUomId,
+        purchaseUomId: dto.purchaseUomId,
+        uomWidth: dto.uomWidth,
+      });
+      // Default stock UOM to Pcs when nothing provided
+      if (!item.stockUomId) {
+        const pcs = await this.uomService.findByCode('PCS');
+        if (pcs) {
+          item.stockUomId = pcs.id;
+          item.salesUomId = item.salesUomId ?? pcs.id;
+          item.purchaseUomId = item.purchaseUomId ?? pcs.id;
+          item.unit = pcs.symbol;
+        }
+      }
+      item = await this.itemRepo.save(item);
     }
 
     const existing = await this.stockService.getStock(dto.locationId, item.id);
@@ -238,18 +324,18 @@ export class InventoryService {
     return this.findOne(saved.id, requestBaseUrl);
   }
 
-  async update(
-    id: string,
-    dto: UpdateInventoryDto,
-    requestBaseUrl?: string,
-  ) {
+  async update(id: string, dto: UpdateInventoryDto, requestBaseUrl?: string) {
     const stock = await this.findOne(id, requestBaseUrl);
 
     const itemChanged =
       dto.description !== undefined ||
       dto.sku !== undefined ||
       dto.unit !== undefined ||
-      dto.itemType !== undefined;
+      dto.itemType !== undefined ||
+      dto.stockUomId !== undefined ||
+      dto.salesUomId !== undefined ||
+      dto.purchaseUomId !== undefined ||
+      dto.uomWidth !== undefined;
 
     if (itemChanged) {
       if (dto.description !== undefined) {
@@ -272,13 +358,16 @@ export class InventoryService {
         }
         stock.item.sku = sku;
       }
-      if (dto.unit !== undefined) {
-        stock.item.unit =
-          dto.unit === null || dto.unit.trim() === '' ? null : dto.unit.trim();
-      }
       if (dto.itemType !== undefined) {
         stock.item.itemType = dto.itemType;
       }
+      await this.applyItemUoms(stock.item, {
+        unit: dto.unit,
+        stockUomId: dto.stockUomId,
+        salesUomId: dto.salesUomId,
+        purchaseUomId: dto.purchaseUomId,
+        uomWidth: dto.uomWidth,
+      });
       await this.itemRepo.save(stock.item);
     }
 
@@ -309,9 +398,7 @@ export class InventoryService {
     }
     const ext = ITEM_IMAGE_MIME[file.mimetype];
     if (!ext) {
-      throw new BadRequestException(
-        'Image must be JPEG, PNG, WebP, or GIF',
-      );
+      throw new BadRequestException('Image must be JPEG, PNG, WebP, or GIF');
     }
 
     const stock = await this.findOne(stockId, requestBaseUrl);
@@ -762,7 +849,10 @@ function isBlockedImageHost(hostname: string): boolean {
   }
 
   const parts = host.split('.').map((p) => Number(p));
-  if (parts.length === 4 && parts.every((n) => Number.isInteger(n) && n >= 0 && n <= 255)) {
+  if (
+    parts.length === 4 &&
+    parts.every((n) => Number.isInteger(n) && n >= 0 && n <= 255)
+  ) {
     const [a, b] = parts;
     if (a === 10) return true;
     if (a === 127) return true;
@@ -793,9 +883,7 @@ async function resolveFirstWorksheetPath(
       : undefined;
   }
 
-  const firstSheet = workbookXml.match(
-    /<sheet[^>]*\br:id="([^"]+)"[^>]*\/?>/,
-  );
+  const firstSheet = workbookXml.match(/<sheet[^>]*\br:id="([^"]+)"[^>]*\/?>/);
   if (!firstSheet) {
     return zip.file('xl/worksheets/sheet1.xml')
       ? 'xl/worksheets/sheet1.xml'

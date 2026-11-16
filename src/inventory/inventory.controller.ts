@@ -61,10 +61,7 @@ export class InventoryController {
 
   @Get('low-stock')
   @RequirePermissions('inventory.read')
-  findLowStock(
-    @Req() req: RequestLike,
-    @Query() query: LowStockListQueryDto,
-  ) {
+  findLowStock(@Req() req: RequestLike, @Query() query: LowStockListQueryDto) {
     return this.inventoryService.findLowStock(query, requestBaseUrl(req));
   }
 
@@ -134,11 +131,7 @@ export class InventoryController {
     @Param('id') id: string,
     @UploadedFile() file: UploadedImageFile,
   ) {
-    return this.inventoryService.uploadItemImage(
-      id,
-      file,
-      requestBaseUrl(req),
-    );
+    return this.inventoryService.uploadItemImage(id, file, requestBaseUrl(req));
   }
 
   @Delete(':id/image')

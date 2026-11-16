@@ -362,6 +362,39 @@ All report endpoints require `reports.read`. Optional query filters on date-base
 }
 ```
 
+## Units of measure (UOM)
+
+ERP-style configurable units with conversions. Stock is always stored in the item’s **stock UOM**. Sales, purchases, and BOM lines may use another UOM; the API converts to stock quantity.
+
+| Method | Path | Permission |
+|--------|------|------------|
+| GET | `/uom/categories` | `uom.read` |
+| POST | `/uom/categories` | `uom.write` |
+| PATCH | `/uom/categories/:id` | `uom.write` |
+| GET | `/uom/units?categoryId=` | `uom.read` |
+| GET | `/uom/units/:id` | `uom.read` |
+| POST | `/uom/units` | `uom.write` |
+| PATCH | `/uom/units/:id` | `uom.write` |
+| GET | `/uom/items/:itemId` | `uom.read` (item-specific conversions) |
+| POST | `/uom/items/:itemId` | `uom.write` body `{ uomId, conversionFactor }` |
+| DELETE | `/uom/items/:itemId/:uomId` | `uom.write` |
+| POST | `/uom/convert` | `uom.read` body `{ itemId, fromUomId, toUomId?, quantity }` |
+
+**Categories (seeded):** `COUNT`, `LENGTH`, `AREA`, `MASS`, `VOLUME`.
+
+**Conversion factor (category):** how many **category-base** units = 1 of this UOM.  
+Examples: Pcs=`1`, Pack=`12` → `1 pck = 12 pcs`. Meter=`1`, cm=`0.01` → `1 cm = 0.01 m` (i.e. `1 m = 100 cm`).
+
+**Item fields:** `stockUomId`, `salesUomId`, `purchaseUomId`, optional `uomWidth` (Length↔Area: `area = length × width`). Legacy `unit` string stays synced to the stock UOM symbol.
+
+**Item UOM override:** `{ conversionFactor }` = how many **stock UOM** units = 1 of that UOM for this item (e.g. this SKU’s box = 24 pcs).
+
+**Document lines** (sale / purchase / BOM): optional `uomId`; response includes `stockQuantity` used for inventory. Unit price is per **transaction** UOM.
+
+**Length sold / Area stocked (fabric, carpet):** set stock UOM = `sqm`, sales UOM = `m`, `uomWidth` = roll width in meters (e.g. `1.5`). Selling `2 m` deducts `3 sqm`.
+
+---
+
 ## Locations
 
 | Method | Path | Permission |

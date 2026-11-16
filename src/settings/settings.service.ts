@@ -1,19 +1,17 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { InjectRepository } from '@nestjs/typeorm';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { randomUUID } from 'crypto';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { SiteBranding } from '../database/entities/site-branding.entity';
-import {
-  BrandingResponse,
-  UpdateBrandingDto,
-} from './dto/branding.dto';
+import { BrandingResponse, UpdateBrandingDto } from './dto/branding.dto';
 
 const ALLOWED_MIME: Record<string, string> = {
   'image/jpeg': '.jpg',
@@ -26,11 +24,14 @@ const MAX_BYTES = 5 * 1024 * 1024;
 
 @Injectable()
 export class SettingsService implements OnModuleInit {
+  private readonly logger = new Logger(SettingsService.name);
   private readonly uploadDir = join(process.cwd(), 'uploads', 'branding');
 
   constructor(
     @InjectRepository(SiteBranding)
     private readonly repo: Repository<SiteBranding>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
     private readonly config: ConfigService,
   ) {}
 
@@ -41,17 +42,42 @@ export class SettingsService implements OnModuleInit {
     }
   }
 
+  /** Create `site_branding` when migrations/schema sync have not run yet (e.g. fresh cPanel DB). */
+  private async ensureTable() {
+    await this.dataSource.query(`
+      CREATE TABLE IF NOT EXISTS "site_branding" (
+        "id" uuid NOT NULL,
+        "app_name" character varying(80) NOT NULL DEFAULT 'Stock',
+        "hero_image_path" character varying(500),
+        "headline" character varying(160),
+        "supporting_text" character varying(400),
+        "created_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
+        "updated_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT "PK_site_branding" PRIMARY KEY ("id")
+      )
+    `);
+  }
+
   private async ensureRow() {
-    const count = await this.repo.count();
-    if (count === 0) {
-      await this.repo.save(
-        this.repo.create({
-          appName: 'Stock',
-          heroImagePath: null,
-          headline: null,
-          supportingText: null,
-        }),
+    try {
+      await this.ensureTable();
+      const count = await this.repo.count();
+      if (count === 0) {
+        await this.repo.save(
+          this.repo.create({
+            appName: 'Stock',
+            heroImagePath: null,
+            headline: null,
+            supportingText: null,
+          }),
+        );
+      }
+    } catch (err) {
+      this.logger.error(
+        'Failed to ensure site_branding row; run schema:sync / migration:run',
+        err instanceof Error ? err.stack : err,
       );
+      throw err;
     }
   }
 
@@ -125,9 +151,7 @@ export class SettingsService implements OnModuleInit {
     }
     const ext = ALLOWED_MIME[file.mimetype];
     if (!ext) {
-      throw new BadRequestException(
-        'Image must be JPEG, PNG, WebP, or GIF',
-      );
+      throw new BadRequestException('Image must be JPEG, PNG, WebP, or GIF');
     }
 
     if (!existsSync(this.uploadDir)) {

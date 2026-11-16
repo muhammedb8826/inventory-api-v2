@@ -1,9 +1,13 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import { tableExists } from '../migration.util';
 
 export class Notifications1748890000000 implements MigrationInterface {
   name = 'Notifications1748890000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    // Needs base `users` table from schema:sync on a fresh database.
+    if (!(await tableExists(queryRunner, 'users'))) return;
+
     await queryRunner.query(`
       DO $$ BEGIN
         CREATE TYPE "notifications_type_enum" AS ENUM (

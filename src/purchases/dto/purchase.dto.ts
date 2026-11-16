@@ -29,6 +29,11 @@ export class PurchaseLineDto {
   @Min(0.001)
   quantity: number;
 
+  /** Transaction UOM; defaults to item purchase UOM then stock UOM. */
+  @IsOptional()
+  @IsUUID()
+  uomId?: string;
+
   @Type(() => Number)
   @IsNumber()
   @Min(0)

@@ -28,6 +28,9 @@ export { ProductionOrderLine } from './production-order-line.entity';
 export { CustomerInquiry } from './customer-inquiry.entity';
 export { CustomerInquiryLine } from './customer-inquiry-line.entity';
 export { SiteBranding } from './site-branding.entity';
+export { UomCategory } from './uom-category.entity';
+export { Uom } from './uom.entity';
+export { ItemUom } from './item-uom.entity';
 
 import { Permission } from './permission.entity';
 import { Role } from './role.entity';
@@ -59,6 +62,9 @@ import { ProductionOrderLine } from './production-order-line.entity';
 import { CustomerInquiry } from './customer-inquiry.entity';
 import { CustomerInquiryLine } from './customer-inquiry-line.entity';
 import { SiteBranding } from './site-branding.entity';
+import { UomCategory } from './uom-category.entity';
+import { Uom } from './uom.entity';
+import { ItemUom } from './item-uom.entity';
 
 export const entities = [
   Permission,
@@ -91,4 +97,7 @@ export const entities = [
   CustomerInquiry,
   CustomerInquiryLine,
   SiteBranding,
+  UomCategory,
+  Uom,
+  ItemUom,
 ];

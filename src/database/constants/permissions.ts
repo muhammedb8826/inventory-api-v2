@@ -85,12 +85,18 @@ export const PERMISSION_DEFINITIONS = [
     name: 'Manage customer inquiries',
     module: 'inquiries',
   },
-  { code: 'settings.read', name: 'View site settings / branding', module: 'settings' },
+  {
+    code: 'settings.read',
+    name: 'View site settings / branding',
+    module: 'settings',
+  },
   {
     code: 'settings.write',
     name: 'Manage site settings / branding',
     module: 'settings',
   },
+  { code: 'uom.read', name: 'View units of measure', module: 'uom' },
+  { code: 'uom.write', name: 'Manage units of measure', module: 'uom' },
 ] as const;
 
 export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
@@ -111,6 +117,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'profit_loss.read',
     'locations.read',
     'inventory.read',
+    'uom.read',
   ],
   Purchaser: [
     'purchase.read',
@@ -122,6 +129,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'bank.read',
     'inventory.read',
     'locations.read',
+    'uom.read',
   ],
   'Stock Keeper': [
     'inventory.read',
@@ -135,5 +143,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'stock_transfer.read',
     'stock_transfer.write',
     'locations.read',
+    'uom.read',
+    'uom.write',
   ],
 };

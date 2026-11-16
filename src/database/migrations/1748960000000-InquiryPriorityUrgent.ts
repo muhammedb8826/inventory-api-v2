@@ -10,6 +10,7 @@ export class InquiryPriorityUrgent1748960000000 implements MigrationInterface {
           ADD VALUE IF NOT EXISTS 'URGENT';
       EXCEPTION
         WHEN duplicate_object THEN NULL;
+        WHEN undefined_object THEN NULL;
       END $$;
     `);
   }

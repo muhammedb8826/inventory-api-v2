@@ -13,6 +13,8 @@
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
     "seed": "ts-node src/seed.ts",
+    "schema:sync": "typeorm-ts-node-commonjs schema:sync -d src/database/data-source.ts",
+    "db:bootstrap": "npm run schema:sync && npm run migration:run",
     "migration:generate": "typeorm-ts-node-commonjs migration:generate -d src/database/data-source.ts",
     "migration:create": "typeorm-ts-node-commonjs migration:create",
     "migration:run": "typeorm-ts-node-commonjs migration:run -d src/database/data-source.ts",

@@ -38,6 +38,8 @@ import {
 import { CommissionSummaryQueryDto } from './dto/commission-summary-query.dto';
 import { CreateSaleDto, SaleLineDto } from './dto/sale.dto';
 import { UpdateSaleDto } from './dto/update-sale.dto';
+import { UomConversionService } from '../uom/uom-conversion.service';
+import { loadItemForUom, resolveLineUom } from '../uom/resolve-line-uom';
 
 type SaleCommissionLineInput = Pick<
   SaleLine,
@@ -46,8 +48,26 @@ type SaleCommissionLineInput = Pick<
 
 type SaleLineDraft = Pick<
   SaleLine,
-  'itemId' | 'quantity' | 'unitPrice' | 'purchaseCost' | 'lineTotal'
+  | 'itemId'
+  | 'quantity'
+  | 'uomId'
+  | 'stockQuantity'
+  | 'unitPrice'
+  | 'purchaseCost'
+  | 'lineTotal'
 >;
+
+function stockQtyOf(line: {
+  quantity: string | number;
+  stockQuantity?: string | null;
+}): number {
+  if (line.stockQuantity != null && line.stockQuantity !== '') {
+    return parseFloat(String(line.stockQuantity));
+  }
+  return typeof line.quantity === 'number'
+    ? line.quantity
+    : parseFloat(line.quantity);
+}
 
 @Injectable()
 export class SalesService {
@@ -63,6 +83,7 @@ export class SalesService {
     private readonly banksService: BanksService,
     private readonly notifications: NotificationsService,
     private readonly lowStockService: LowStockService,
+    private readonly uomConversion: UomConversionService,
   ) {}
 
   async findAll(query: SalesListQueryDto) {
@@ -271,6 +292,7 @@ export class SalesService {
     return sale.lines.map((l) => ({
       itemId: l.itemId,
       quantity: parseFloat(l.quantity),
+      uomId: l.uomId ?? undefined,
       unitPrice: parseFloat(l.unitPrice),
     }));
   }
@@ -424,15 +446,42 @@ export class SalesService {
           {
             locationId: oldLocationId,
             itemId: line.itemId,
-            quantityDelta: parseFloat(line.quantity),
+            quantityDelta: stockQtyOf(line),
           },
           manager,
         );
       }
 
+      const resolvedLines: {
+        line: (typeof lines)[number];
+        stockQuantity: number;
+        uomId: string | null;
+      }[] = [];
+      for (const line of lines) {
+        const item = await loadItemForUom(manager, line.itemId);
+        if (!item) {
+          throw new BadRequestException(`Item not found: ${line.itemId}`);
+        }
+        const resolved = await resolveLineUom(
+          this.uomConversion,
+          item,
+          'sales',
+          line.quantity,
+          (line as SaleLineDto).uomId,
+        );
+        resolvedLines.push({
+          line,
+          stockQuantity: resolved.stockQuantity,
+          uomId: resolved.uomId,
+        });
+      }
+
       stockWarnings = await this.stockService.checkAvailability(
         locationId,
-        lines,
+        resolvedLines.map((l) => ({
+          itemId: l.line.itemId,
+          quantity: l.stockQuantity,
+        })),
         allowNeg,
         manager,
       );
@@ -454,7 +503,7 @@ export class SalesService {
       await lineRepo.delete({ saleId: sale.id });
 
       const saleLines: SaleLineDraft[] = [];
-      for (const line of lines) {
+      for (const { line, stockQuantity, uomId } of resolvedLines) {
         const stock = await this.stockService.getStock(
           locationId,
           line.itemId,
@@ -465,6 +514,8 @@ export class SalesService {
         saleLines.push({
           itemId: line.itemId,
           quantity: line.quantity.toFixed(3),
+          uomId,
+          stockQuantity: stockQuantity.toFixed(3),
           unitPrice: line.unitPrice.toFixed(2),
           purchaseCost: purchaseCost.toFixed(2),
           lineTotal: lineTotal.toFixed(2),
@@ -499,7 +550,7 @@ export class SalesService {
 
       await saleRepo.save(sale);
 
-      for (const line of lines) {
+      for (const { line, stockQuantity } of resolvedLines) {
         const previousQuantity = await this.stockService.getQuantity(
           locationId,
           line.itemId,
@@ -509,7 +560,7 @@ export class SalesService {
           {
             locationId,
             itemId: line.itemId,
-            quantityDelta: -line.quantity,
+            quantityDelta: -stockQuantity,
           },
           manager,
         );
@@ -597,7 +648,7 @@ export class SalesService {
           {
             locationId: sale.locationId,
             itemId: line.itemId,
-            quantityDelta: parseFloat(line.quantity),
+            quantityDelta: stockQtyOf(line),
           },
           manager,
         );
@@ -663,9 +714,36 @@ export class SalesService {
       const saleRepo = manager.getRepository(Sale);
       const creditRepo = manager.getRepository(CustomerCredit);
 
+      const resolvedLines: {
+        dto: SaleLineDto;
+        stockQuantity: number;
+        uomId: string | null;
+      }[] = [];
+      for (const line of dto.lines) {
+        const item = await loadItemForUom(manager, line.itemId);
+        if (!item) {
+          throw new BadRequestException(`Item not found: ${line.itemId}`);
+        }
+        const resolved = await resolveLineUom(
+          this.uomConversion,
+          item,
+          'sales',
+          line.quantity,
+          line.uomId,
+        );
+        resolvedLines.push({
+          dto: line,
+          stockQuantity: resolved.stockQuantity,
+          uomId: resolved.uomId,
+        });
+      }
+
       const stockWarnings = await this.stockService.checkAvailability(
         dto.locationId,
-        dto.lines,
+        resolvedLines.map((l) => ({
+          itemId: l.dto.itemId,
+          quantity: l.stockQuantity,
+        })),
         allowNegative,
         manager,
       );
@@ -673,7 +751,7 @@ export class SalesService {
       const saleLines: SaleLineDraft[] = [];
       let subtotal = 0;
 
-      for (const line of dto.lines) {
+      for (const { dto: line, stockQuantity, uomId } of resolvedLines) {
         const stock = await this.stockService.getStock(
           dto.locationId,
           line.itemId,
@@ -685,6 +763,8 @@ export class SalesService {
         saleLines.push({
           itemId: line.itemId,
           quantity: line.quantity.toFixed(3),
+          uomId,
+          stockQuantity: stockQuantity.toFixed(3),
           unitPrice: line.unitPrice.toFixed(2),
           purchaseCost: purchaseCost.toFixed(2),
           lineTotal: lineTotal.toFixed(2),
@@ -723,7 +803,7 @@ export class SalesService {
         }),
       );
 
-      for (const line of dto.lines) {
+      for (const { dto: line, stockQuantity } of resolvedLines) {
         const previousQuantity = await this.stockService.getQuantity(
           dto.locationId,
           line.itemId,
@@ -733,7 +813,7 @@ export class SalesService {
           {
             locationId: dto.locationId,
             itemId: line.itemId,
-            quantityDelta: -line.quantity,
+            quantityDelta: -stockQuantity,
           },
           manager,
         );

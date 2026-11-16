@@ -1,10 +1,18 @@
 import { randomUUID } from 'crypto';
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import { tableExists } from '../migration.util';
 
 export class InquiryLines1748970000000 implements MigrationInterface {
   name = 'InquiryLines1748970000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    if (
+      !(await tableExists(queryRunner, 'customer_inquiries')) ||
+      !(await tableExists(queryRunner, 'items'))
+    ) {
+      return;
+    }
+
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS "customer_inquiry_lines" (
         "id" uuid NOT NULL,

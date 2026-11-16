@@ -70,8 +70,12 @@ Set `DB_SEED=false` after the first successful seed.
 | `npm run start:dev` | Development with watch |
 | `npm run build` | Production build |
 | `npm run start:prod` | Run compiled app |
-| `npm run migration:run` | Run TypeORM migrations |
+| `npm run schema:sync` | Create/update base tables from entities (required once on an empty DB) |
+| `npm run migration:run` | Run incremental TypeORM migrations |
+| `npm run db:bootstrap` | Fresh DB: `schema:sync` then `migration:run` |
 | `npm run seed` | Seed permissions, roles, admin, default accounts |
+
+**Empty production DB:** run `npm run db:bootstrap` (then `npm run seed`). Migrations alone fail if base tables like `sales` / `site_branding` do not exist yet.
 
 ## Frontend integration
 

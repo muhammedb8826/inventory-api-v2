@@ -18,6 +18,8 @@ import {
   CreateBomDto,
   UpdateBomDto,
 } from './dto/bom.dto';
+import { UomConversionService } from '../uom/uom-conversion.service';
+import { resolveLineUom } from '../uom/resolve-line-uom';
 
 @Injectable()
 export class BomsService {
@@ -26,7 +28,43 @@ export class BomsService {
     private readonly bomRepo: Repository<Bom>,
     @InjectRepository(Item)
     private readonly itemRepo: Repository<Item>,
+    private readonly uomConversion: UomConversionService,
   ) {}
+
+  private async mapBomLines(lines: BomLineDto[]) {
+    const out: Partial<BomLine>[] = [];
+    for (const line of lines) {
+      const item = await this.itemRepo.findOne({
+        where: { id: line.componentItemId },
+        relations: {
+          stockUom: { category: true },
+          itemUoms: true,
+        },
+      });
+      if (!item) {
+        throw new BadRequestException(
+          `Component item not found: ${line.componentItemId}`,
+        );
+      }
+      const resolved = await resolveLineUom(
+        this.uomConversion,
+        item,
+        'stock',
+        line.quantity,
+        line.uomId,
+      );
+      const scrap = line.scrapPercent ?? 0;
+      const stockWithScrap = resolved.stockQuantity * (1 + scrap / 100);
+      out.push({
+        componentItemId: line.componentItemId,
+        quantity: line.quantity.toFixed(3),
+        uomId: resolved.uomId,
+        stockQuantity: stockWithScrap.toFixed(3),
+        scrapPercent: scrap.toFixed(2),
+      });
+    }
+    return out;
+  }
 
   findAll(query: BomListQueryDto) {
     const qb = this.bomRepo
@@ -79,12 +117,8 @@ export class BomsService {
         version: dto.version?.trim() || null,
         notes: dto.notes?.trim() || null,
         isActive: true,
-        lines: dto.lines.map((line) =>
-          Object.assign(new BomLine(), {
-            componentItemId: line.componentItemId,
-            quantity: line.quantity.toFixed(3),
-            scrapPercent: (line.scrapPercent ?? 0).toFixed(2),
-          }),
+        lines: (await this.mapBomLines(dto.lines)).map((line) =>
+          Object.assign(new BomLine(), line),
         ),
       }),
     );
@@ -111,13 +145,12 @@ export class BomsService {
       await this.assertLines(bom.finishedItemId, dto.lines as BomLineDto[]);
       const lineRepo = this.bomRepo.manager.getRepository(BomLine);
       await lineRepo.delete({ bomId: id });
+      const mapped = await this.mapBomLines(dto.lines as BomLineDto[]);
       await lineRepo.save(
-        dto.lines.map((line) =>
+        mapped.map((line) =>
           lineRepo.create({
             bomId: id,
-            componentItemId: line.componentItemId,
-            quantity: line.quantity.toFixed(3),
-            scrapPercent: (line.scrapPercent ?? 0).toFixed(2),
+            ...line,
           }),
         ),
       );

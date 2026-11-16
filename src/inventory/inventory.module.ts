@@ -5,6 +5,7 @@ import { Location } from '../database/entities/location.entity';
 import { StockAdjustment } from '../database/entities/stock-adjustment.entity';
 import { StockLevel } from '../database/entities/stock-level.entity';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { UomModule } from '../uom/uom.module';
 import { InventoryController } from './inventory.controller';
 import { InventoryService } from './inventory.service';
 import { StockService } from './stock.service';
@@ -13,6 +14,7 @@ import { StockService } from './stock.service';
   imports: [
     TypeOrmModule.forFeature([StockLevel, Item, Location, StockAdjustment]),
     NotificationsModule,
+    UomModule,
   ],
   controllers: [InventoryController],
   providers: [InventoryService, StockService],

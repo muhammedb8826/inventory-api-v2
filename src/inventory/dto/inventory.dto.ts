@@ -36,6 +36,25 @@ export class CreateInventoryDto {
   unit?: string;
 
   @IsOptional()
+  @IsUUID()
+  stockUomId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  salesUomId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  purchaseUomId?: string;
+
+  /** Length→Area factor (area per 1 length-base unit). */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  uomWidth?: number;
+
+  @IsOptional()
   @IsEnum(ItemType)
   itemType?: ItemType;
 
@@ -60,6 +79,28 @@ export class UpdateInventoryDto {
   @ValidateIf((_, value) => value !== null)
   @IsString()
   unit?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsUUID()
+  stockUomId?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsUUID()
+  salesUomId?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsUUID()
+  purchaseUomId?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  uomWidth?: number | null;
 
   @IsOptional()
   @IsEnum(ItemType)

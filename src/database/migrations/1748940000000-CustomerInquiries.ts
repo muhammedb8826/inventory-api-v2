@@ -1,9 +1,18 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import { tableExists } from '../migration.util';
 
 export class CustomerInquiries1748940000000 implements MigrationInterface {
   name = 'CustomerInquiries1748940000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    if (
+      !(await tableExists(queryRunner, 'customers')) ||
+      !(await tableExists(queryRunner, 'items')) ||
+      !(await tableExists(queryRunner, 'users'))
+    ) {
+      return;
+    }
+
     await queryRunner.query(`
       DO $$ BEGIN
         CREATE TYPE "customer_inquiries_status_enum" AS ENUM (

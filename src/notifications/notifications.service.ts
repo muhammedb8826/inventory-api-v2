@@ -251,9 +251,7 @@ export class NotificationsService {
     await this.notifyUsersWithPermission('credit.read', {
       module: 'credit',
       type: NotificationType.CREDIT_DUE,
-      title: isCustomer
-        ? 'Opening customer credit'
-        : 'Opening supplier credit',
+      title: isCustomer ? 'Opening customer credit' : 'Opening supplier credit',
       message: `${params.partyName}${ref}: Br ${params.amount}${due}`,
       entityType: isCustomer ? 'customer_credit' : 'supplier_credit',
       entityId: params.creditId,

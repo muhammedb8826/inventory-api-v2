@@ -10,7 +10,11 @@ import {
   Repository,
   SelectQueryBuilder,
 } from 'typeorm';
-import { BankTransactionType, CreditSource, CreditStatus } from '../common/enums';
+import {
+  BankTransactionType,
+  CreditSource,
+  CreditStatus,
+} from '../common/enums';
 import {
   applyDateRangeToQb,
   applyRelatedIlikeSearch,
@@ -227,7 +231,9 @@ export class CreditsService {
 
       const party = credit.customer?.name ?? 'customer';
       const sourceLabel =
-        credit.source === CreditSource.OPENING ? 'opening receivable' : 'receivable';
+        credit.source === CreditSource.OPENING
+          ? 'opening receivable'
+          : 'receivable';
       const term = await this.nextPaymentSequence(
         txRepo,
         'customer_credit_payment',
@@ -537,7 +543,10 @@ export class CreditsService {
   private async listPaymentsForCredit(
     refType: string,
     creditId: string,
-  ): Promise<{ data: CreditPaymentRow[]; totals: { paid: string; voided: string } }> {
+  ): Promise<{
+    data: CreditPaymentRow[];
+    totals: { paid: string; voided: string };
+  }> {
     const rows = await this.bankTxRepo.find({
       where: { refType, refId: creditId },
       relations: { bankAccount: true },
@@ -551,7 +560,9 @@ export class CreditsService {
           .select('r.reference_id', 'refId')
           .where('r.reference_type = :rt', { rt: `${refType}_reversal` })
           .andWhere('r.reference_id IN (:...ids)', {
-            ids: rows.length ? rows.map((r) => r.id) : ['00000000-0000-0000-0000-000000000000'],
+            ids: rows.length
+              ? rows.map((r) => r.id)
+              : ['00000000-0000-0000-0000-000000000000'],
           })
           .getRawMany<{ refId: string }>()
       ).map((r) => r.refId),

@@ -122,8 +122,12 @@ export class ProductionService {
         notes: dto.notes?.trim() || null,
         createdById: userId ?? null,
         lines: bom.lines.map((line) => {
-          const scrap = parseFloat(line.scrapPercent) || 0;
-          const perUnit = parseFloat(line.quantity) * (1 + scrap / 100);
+          // stockQuantity already includes scrap conversion to component stock UOM
+          const perUnit =
+            line.stockQuantity != null && line.stockQuantity !== ''
+              ? parseFloat(line.stockQuantity)
+              : parseFloat(line.quantity) *
+                (1 + (parseFloat(line.scrapPercent) || 0) / 100);
           const required = perUnit * dto.quantityPlanned;
           return Object.assign(new ProductionOrderLine(), {
             componentItemId: line.componentItemId,

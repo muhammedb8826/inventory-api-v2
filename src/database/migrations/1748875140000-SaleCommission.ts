@@ -1,9 +1,13 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import { tableExists } from '../migration.util';
 
 export class SaleCommission1748875140000 implements MigrationInterface {
   name = 'SaleCommission1748875140000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    // Incremental migration — base schema comes from schema:sync on a fresh DB.
+    if (!(await tableExists(queryRunner, 'sales'))) return;
+
     await queryRunner.query(`
       ALTER TABLE "sales"
       ADD COLUMN IF NOT EXISTS "sold_by_user_id" uuid
