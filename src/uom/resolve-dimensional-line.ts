@@ -68,15 +68,19 @@ export async function resolveDimensionalLine(
       throw new BadRequestException('Pieces must be at least 1');
     }
 
-    const stockCategory = item.stockUom?.category?.code;
-    if (stockCategory && stockCategory !== AREA) {
-      throw new BadRequestException(
-        'Width × height cuts require an Area stock UOM (e.g. m²)',
-      );
-    }
     if (!item.dimensionPriceMode) {
       throw new BadRequestException(
         'Enable dimension pricing on the item (By area or By piece) before using cuts',
+      );
+    }
+    const stockCategory = item.stockUom?.category?.code;
+    const stockLabel =
+      item.stockUom?.symbol ?? item.stockUom?.code ?? item.unit ?? 'unknown';
+    if (!stockCategory || stockCategory !== AREA) {
+      throw new BadRequestException(
+        `Width × height cuts need an Area stock UOM (e.g. m²). "${item.description}" is stocked in ${stockLabel}` +
+          (stockCategory ? ` (${stockCategory})` : '') +
+          '. Set stock UOM to Square Meter, keep roll width for Length purchases, then retry.',
       );
     }
 

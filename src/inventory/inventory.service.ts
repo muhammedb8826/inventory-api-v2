@@ -507,6 +507,25 @@ export class InventoryService {
     }
   }
 
+  /** Cut pricing (W×H) only works when inventory is stored in Area (m²). */
+  private async assertDimensionPricingRequiresAreaStock(
+    stockUomId: string | null | undefined,
+    dimensionPriceMode: import('../common/enums').DimensionPriceMode | null | undefined,
+  ) {
+    if (!dimensionPriceMode) return;
+    if (!stockUomId) {
+      throw new BadRequestException(
+        'Cut pricing requires an Area stock UOM (e.g. m²). Set stock UOM before enabling cut pricing.',
+      );
+    }
+    const stockUom = await this.uomService.findUom(stockUomId);
+    if (stockUom.category?.code !== 'AREA') {
+      throw new BadRequestException(
+        `Cut pricing requires an Area stock UOM (e.g. m²). Current stock UOM is ${stockUom.symbol} (${stockUom.category?.code ?? 'unknown'}). Use Square Meter for stock; set roll width for Length purchases.`,
+      );
+    }
+  }
+
   private async prepareNewItemFields(dto: CreateInventoryDto): Promise<Item> {
     const item = this.itemRepo.create({
       sku: dto.sku?.trim() ? dto.sku.trim() : null,
@@ -543,6 +562,10 @@ export class InventoryService {
       item.stockUomId,
       item.purchaseUomId,
       'Purchase',
+    );
+    await this.assertDimensionPricingRequiresAreaStock(
+      item.stockUomId,
+      item.dimensionPriceMode,
     );
     return item;
   }
@@ -805,6 +828,10 @@ export class InventoryService {
         uomWidth: dto.uomWidth,
         dimensionPriceMode: dto.dimensionPriceMode,
       });
+      await this.assertDimensionPricingRequiresAreaStock(
+        stock.item.stockUomId,
+        stock.item.dimensionPriceMode,
+      );
       await this.itemRepo.save(stock.item);
     }
 
