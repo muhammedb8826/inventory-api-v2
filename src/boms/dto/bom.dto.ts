@@ -4,6 +4,7 @@ import {
   ArrayMinSize,
   IsArray,
   IsBoolean,
+  IsEnum,
   IsNumber,
   IsOptional,
   IsString,
@@ -12,8 +13,10 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
+import { BomType } from '../../common/enums';
 import { ListQueryDto } from '../../common/dto/list-query.dto';
 
 export class BomLineDto {
@@ -57,15 +60,32 @@ export class CreateBomDto {
   @IsUUID()
   finishedItemId: string;
 
+  /** Optional product variant of finishedItemId. */
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsUUID()
+  variantItemId?: string | null;
+
+  /** Odoo Reference — optional; defaults to product name when empty. */
+  @IsOptional()
   @IsString()
-  @MinLength(1)
   @MaxLength(120)
-  name: string;
+  name?: string;
 
   @IsOptional()
   @IsString()
   @MaxLength(40)
   version?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.001)
+  quantity?: number;
+
+  @IsOptional()
+  @IsEnum(BomType)
+  bomType?: BomType;
 
   @IsOptional()
   @IsString()
@@ -90,8 +110,16 @@ export class UpdateBomDto {
   @IsUUID()
   finishedItemId?: string;
 
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsUUID()
+  variantItemId?: string | null;
+
   @Allow()
   finishedItem?: unknown;
+
+  @Allow()
+  variantItem?: unknown;
 
   @Allow()
   createdAt?: unknown;
@@ -109,6 +137,16 @@ export class UpdateBomDto {
   @IsString()
   @MaxLength(40)
   version?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.001)
+  quantity?: number;
+
+  @IsOptional()
+  @IsEnum(BomType)
+  bomType?: BomType;
 
   @IsOptional()
   @IsString()

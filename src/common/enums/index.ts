@@ -93,6 +93,12 @@ export enum ItemType {
   OTHER = 'OTHER',
 }
 
+/** Odoo-style BoM type. */
+export enum BomType {
+  MANUFACTURE = 'MANUFACTURE',
+  KIT = 'KIT',
+}
+
 export enum ProductionOrderStatus {
   DRAFT = 'DRAFT',
   RELEASED = 'RELEASED',

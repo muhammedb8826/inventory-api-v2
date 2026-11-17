@@ -111,10 +111,19 @@ export class ProductionService {
     });
     if (!location) throw new BadRequestException('Location not found');
 
+    const finished = bom.finishedItem;
+    if (finished?.isTemplate && !bom.variantItemId) {
+      throw new BadRequestException(
+        'This BoM is for a product template — set a product variant on the BoM before producing',
+      );
+    }
+    const stockableFinishedId = bom.variantItemId ?? bom.finishedItemId;
+    const bomQty = Math.max(parseFloat(bom.quantity || '1') || 1, 0.001);
+
     const order = await this.orderRepo.save(
       this.orderRepo.create({
         bomId: bom.id,
-        finishedItemId: bom.finishedItemId,
+        finishedItemId: stockableFinishedId,
         locationId: dto.locationId,
         quantityPlanned: dto.quantityPlanned.toFixed(3),
         quantityCompleted: '0.000',
@@ -123,12 +132,13 @@ export class ProductionService {
         createdById: userId ?? null,
         lines: bom.lines.map((line) => {
           // stockQuantity already includes scrap conversion to component stock UOM
-          const perUnit =
+          // Scale by production qty / BoM header quantity (Odoo-style).
+          const perBomQty =
             line.stockQuantity != null && line.stockQuantity !== ''
               ? parseFloat(line.stockQuantity)
               : parseFloat(line.quantity) *
                 (1 + (parseFloat(line.scrapPercent) || 0) / 100);
-          const required = perUnit * dto.quantityPlanned;
+          const required = (perBomQty / bomQty) * dto.quantityPlanned;
           return Object.assign(new ProductionOrderLine(), {
             componentItemId: line.componentItemId,
             quantityRequired: required.toFixed(3),

@@ -26,6 +26,13 @@ export class BomsController {
     return this.bomsService.findAll(query);
   }
 
+  /** Product / variant / component catalog for BoM form. */
+  @Get('catalog/items')
+  @RequirePermissions('bom.read')
+  catalog() {
+    return this.bomsService.catalog();
+  }
+
   @Get(':id')
   @RequirePermissions('bom.read')
   findOne(@Param('id') id: string) {
