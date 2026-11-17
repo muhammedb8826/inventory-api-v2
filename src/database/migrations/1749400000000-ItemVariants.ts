@@ -42,7 +42,9 @@ export class ItemVariants1749400000000 implements MigrationInterface {
 
   public async down(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`DROP INDEX IF EXISTS "IDX_items_parent_item"`);
-    await queryRunner.query(`DROP INDEX IF EXISTS "UQ_items_parent_variant_key"`);
+    await queryRunner.query(
+      `DROP INDEX IF EXISTS "UQ_items_parent_variant_key"`,
+    );
     await queryRunner.query(`
       ALTER TABLE "items" DROP CONSTRAINT IF EXISTS "FK_items_parent_item"
     `);

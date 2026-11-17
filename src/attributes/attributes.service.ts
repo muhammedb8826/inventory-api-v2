@@ -202,7 +202,9 @@ export class AttributesService implements OnModuleInit {
       where: { attributeId: dto.attributeId, code },
     });
     if (exists) {
-      throw new BadRequestException('Value code already exists on this attribute');
+      throw new BadRequestException(
+        'Value code already exists on this attribute',
+      );
     }
 
     return this.valueRepo.save(

@@ -24,7 +24,12 @@ export class ProductAttribute extends UuidBaseEntity {
   description: string | null;
 
   /** Display hint: select | radio | color */
-  @Column({ name: 'display_type', type: 'varchar', length: 20, default: 'select' })
+  @Column({
+    name: 'display_type',
+    type: 'varchar',
+    length: 20,
+    default: 'select',
+  })
   displayType: string;
 
   @Column({ name: 'sequence', type: 'int', default: 10 })

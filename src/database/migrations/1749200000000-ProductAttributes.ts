@@ -45,9 +45,7 @@ export class ProductAttributes1749200000000 implements MigrationInterface {
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(
-      `DROP TABLE IF EXISTS "product_attribute_values"`,
-    );
+    await queryRunner.query(`DROP TABLE IF EXISTS "product_attribute_values"`);
     await queryRunner.query(`DROP TABLE IF EXISTS "product_attributes"`);
   }
 }

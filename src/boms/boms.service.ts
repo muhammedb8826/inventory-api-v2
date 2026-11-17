@@ -69,7 +69,7 @@ export class BomsService {
 
   /**
    * Catalog for BoM form:
-   * - products: templates + standalone (no parent) — Odoo "Product"
+   * - products: templates + standalone (no parent)
    * - components: stockable items (non-templates)
    */
   async catalog() {
@@ -101,9 +101,7 @@ export class BomsService {
 
     const attachAttrs = (item: Item) => {
       const links = item.itemAttributeValues ?? [];
-      item.attributeValues = links
-        .map((l) => l.attributeValue)
-        .filter(Boolean);
+      item.attributeValues = links.map((l) => l.attributeValue).filter(Boolean);
       return item;
     };
 
@@ -182,10 +180,7 @@ export class BomsService {
     );
     await this.assertLines(dto.finishedItemId, variantItemId, dto.lines);
 
-    const reference =
-      dto.name?.trim() ||
-      finished.description?.trim() ||
-      'BoM';
+    const reference = dto.name?.trim() || finished.description?.trim() || 'BoM';
 
     const bom = await this.bomRepo.save(
       this.bomRepo.create({
@@ -277,7 +272,11 @@ export class BomsService {
     finishedItemId: string,
     variantItemId?: string | null,
   ): Promise<string | null> {
-    if (variantItemId === undefined || variantItemId === null || variantItemId === '') {
+    if (
+      variantItemId === undefined ||
+      variantItemId === null ||
+      variantItemId === ''
+    ) {
       return null;
     }
     const variant = await this.itemRepo.findOne({

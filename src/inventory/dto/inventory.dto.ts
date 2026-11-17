@@ -74,7 +74,7 @@ export class CreateInventoryDto {
   attributeValueIds?: string[];
 
   /**
-   * Odoo-style variants: multi-select values per attribute.
+   * Product variants: multi-select values per attribute.
    * When combinations ≥ 2, creates a template + one stockable variant each.
    */
   @IsOptional()

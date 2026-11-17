@@ -132,7 +132,7 @@ export class ProductionService {
         createdById: userId ?? null,
         lines: bom.lines.map((line) => {
           // stockQuantity already includes scrap conversion to component stock UOM
-          // Scale by production qty / BoM header quantity (Odoo-style).
+          // Scale by production qty / BoM header quantity.
           const perBomQty =
             line.stockQuantity != null && line.stockQuantity !== ''
               ? parseFloat(line.stockQuantity)

@@ -25,7 +25,7 @@ export class Bom extends UuidBaseEntity {
   @Column({ name: 'variant_item_id', type: 'uuid', nullable: true })
   variantItemId: string | null;
 
-  /** Odoo "Reference" — internal BoM label (not the product name). */
+  /** Internal BoM reference label (not the product name). */
   @Column({ length: 120 })
   name: string;
 

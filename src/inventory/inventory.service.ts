@@ -69,7 +69,8 @@ const MAX_VARIANT_COMBINATIONS = 100;
 function cartesianProduct<T>(arrays: T[][]): T[][] {
   if (arrays.length === 0) return [[]];
   return arrays.reduce<T[][]>(
-    (acc, curr) => acc.flatMap((prefix) => curr.map((item) => [...prefix, item])),
+    (acc, curr) =>
+      acc.flatMap((prefix) => curr.map((item) => [...prefix, item])),
     [[]],
   );
 }
@@ -278,7 +279,10 @@ export class InventoryService {
     variantAttributes: { attributeId: string; valueIds: string[] }[],
   ) {
     if (!variantAttributes.length) {
-      return { allValueIds: [] as string[], combinations: [] as ProductAttributeValue[][] };
+      return {
+        allValueIds: [] as string[],
+        combinations: [] as ProductAttributeValue[][],
+      };
     }
 
     const allValueIds = [
@@ -326,9 +330,7 @@ export class InventoryService {
           a.sequence - b.sequence || a.attributeId.localeCompare(b.attributeId),
       );
 
-    const combinations = cartesianProduct(
-      orderedAttrs.map((a) => a.values),
-    );
+    const combinations = cartesianProduct(orderedAttrs.map((a) => a.values));
     return { allValueIds, combinations };
   }
 

@@ -66,7 +66,7 @@ export class CreateBomDto {
   @IsUUID()
   variantItemId?: string | null;
 
-  /** Odoo Reference — optional; defaults to product name when empty. */
+  /** BoM reference — optional; defaults to product name when empty. */
   @IsOptional()
   @IsString()
   @MaxLength(120)

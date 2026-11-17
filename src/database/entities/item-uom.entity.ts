@@ -12,7 +12,7 @@ import { Item } from './item.entity';
 import { Uom } from './uom.entity';
 
 /**
- * Item-specific UOM (ERPNext-style).
+ * Item-specific UOM.
  * `conversionFactor` = how many **stock UOM** units equal 1 of this UOM for this item.
  * Overrides category math when present (e.g. Item A: 1 Box = 24 Pcs).
  */

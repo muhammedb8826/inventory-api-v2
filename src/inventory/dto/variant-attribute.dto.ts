@@ -1,10 +1,5 @@
 import { Type } from 'class-transformer';
-import {
-  ArrayMinSize,
-  IsArray,
-  IsUUID,
-  ValidateNested,
-} from 'class-validator';
+import { ArrayMinSize, IsArray, IsUUID, ValidateNested } from 'class-validator';
 
 export class VariantAttributeDto {
   @IsUUID()
