@@ -9,6 +9,7 @@ import {
   IsString,
   IsUUID,
   Min,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { PaymentMethod } from '../../common/enums';
@@ -24,10 +25,12 @@ export class PurchaseLineDto {
   })
   itemId: string;
 
+  /** Required unless width+height cut is provided. */
+  @ValidateIf((o: PurchaseLineDto) => o.width == null || o.height == null)
   @Type(() => Number)
   @IsNumber()
   @Min(0.001)
-  quantity: number;
+  quantity?: number;
 
   /** Transaction UOM; defaults to item purchase UOM then stock UOM. */
   @IsOptional()
@@ -38,6 +41,25 @@ export class PurchaseLineDto {
   @IsNumber()
   @Min(0)
   unitPrice: number;
+
+  /** Cut dimensions (Area stock items with dimension pricing). */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.000000001)
+  width?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.000000001)
+  height?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  pieces?: number;
 }
 
 export class CreatePurchaseDto {

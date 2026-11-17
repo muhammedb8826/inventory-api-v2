@@ -126,6 +126,7 @@ export class InventoryService {
       salesUomId?: string | null;
       purchaseUomId?: string | null;
       uomWidth?: number | null;
+      dimensionPriceMode?: import('../common/enums').DimensionPriceMode | null;
     },
   ) {
     if (fields.stockUomId !== undefined) {
@@ -156,6 +157,9 @@ export class InventoryService {
     if (fields.uomWidth !== undefined) {
       item.uomWidth =
         fields.uomWidth === null ? null : fields.uomWidth.toFixed(9);
+    }
+    if (fields.dimensionPriceMode !== undefined) {
+      item.dimensionPriceMode = fields.dimensionPriceMode;
     }
     if (fields.unit !== undefined && fields.stockUomId === undefined) {
       item.unit =
@@ -428,7 +432,72 @@ export class InventoryService {
       },
     });
     if (!stock) throw new NotFoundException('Inventory record not found');
-    return this.attachItemImageUrl(stock, requestBaseUrl);
+    const withImage = this.attachItemImageUrl(stock, requestBaseUrl);
+    const stockUomLocked = await this.isStockUomLocked(stock.itemId);
+    return Object.assign(withImage, { stockUomLocked });
+  }
+
+  /**
+   * ERP rule: stock UOM is frozen once the item has on-hand qty or any
+   * sale / purchase / adjustment / transfer / BOM / production history.
+   */
+  async isStockUomLocked(itemId: string): Promise<boolean> {
+    const nonZero = await this.stockRepo
+      .createQueryBuilder('s')
+      .where('s.item_id = :itemId', { itemId })
+      .andWhere('ABS(s.quantity::numeric) > 0.000000001')
+      .getCount();
+    if (nonZero > 0) return true;
+
+    const checks: string[] = [
+      `SELECT 1 FROM sale_lines WHERE item_id = $1 LIMIT 1`,
+      `SELECT 1 FROM purchase_lines WHERE item_id = $1 LIMIT 1`,
+      `SELECT 1 FROM stock_adjustments WHERE item_id = $1 LIMIT 1`,
+      `SELECT 1 FROM stock_transfer_lines WHERE item_id = $1 LIMIT 1`,
+      `SELECT 1 FROM bom_lines WHERE component_item_id = $1 LIMIT 1`,
+      `SELECT 1 FROM boms WHERE finished_item_id = $1 OR variant_item_id = $1 LIMIT 1`,
+      `SELECT 1 FROM production_order_lines WHERE component_item_id = $1 LIMIT 1`,
+      `SELECT 1 FROM production_orders WHERE finished_item_id = $1 LIMIT 1`,
+    ];
+    for (const sql of checks) {
+      const rows: unknown[] = await this.dataSource.query(sql, [itemId]);
+      if (rows.length > 0) return true;
+    }
+    return false;
+  }
+
+  private async assertStockUomChangeAllowed(
+    itemId: string,
+    currentStockUomId: string | null,
+    nextStockUomId: string | null | undefined,
+  ) {
+    if (nextStockUomId === undefined) return;
+    const next = nextStockUomId ?? null;
+    const current = currentStockUomId ?? null;
+    if (next === current) return;
+    if (await this.isStockUomLocked(itemId)) {
+      throw new BadRequestException(
+        'Stock UOM cannot be changed after stock or document history exists. Keep this stock UOM and use sales/purchase UOMs (same category), or create a new item.',
+      );
+    }
+  }
+
+  /** Sales/purchase UOM must stay in the stock UOM category (ERP rule). */
+  private async assertTxnUomSameCategory(
+    stockUomId: string | null,
+    txnUomId: string | null | undefined,
+    label: string,
+  ) {
+    if (!txnUomId || !stockUomId) return;
+    const [stockUom, txnUom] = await Promise.all([
+      this.uomService.findUom(stockUomId),
+      this.uomService.findUom(txnUomId),
+    ]);
+    if (stockUom.categoryId !== txnUom.categoryId) {
+      throw new BadRequestException(
+        `${label} UOM must be in the same category as stock UOM`,
+      );
+    }
   }
 
   private async prepareNewItemFields(dto: CreateInventoryDto): Promise<Item> {
@@ -447,6 +516,7 @@ export class InventoryService {
       salesUomId: dto.salesUomId,
       purchaseUomId: dto.purchaseUomId,
       uomWidth: dto.uomWidth,
+      dimensionPriceMode: dto.dimensionPriceMode,
     });
     if (!item.stockUomId) {
       const pcs = await this.uomService.findByCode('PCS');
@@ -457,6 +527,16 @@ export class InventoryService {
         item.unit = pcs.symbol;
       }
     }
+    await this.assertTxnUomSameCategory(
+      item.stockUomId,
+      item.salesUomId,
+      'Sales',
+    );
+    await this.assertTxnUomSameCategory(
+      item.stockUomId,
+      item.purchaseUomId,
+      'Purchase',
+    );
     return item;
   }
 
@@ -533,6 +613,7 @@ export class InventoryService {
           salesUomId: savedTemplate.salesUomId,
           purchaseUomId: savedTemplate.purchaseUomId,
           uomWidth: savedTemplate.uomWidth,
+          dimensionPriceMode: savedTemplate.dimensionPriceMode,
           itemType: savedTemplate.itemType,
           imagePath: savedTemplate.imagePath,
           isActive: true,
@@ -663,7 +744,8 @@ export class InventoryService {
       dto.stockUomId !== undefined ||
       dto.salesUomId !== undefined ||
       dto.purchaseUomId !== undefined ||
-      dto.uomWidth !== undefined;
+      dto.uomWidth !== undefined ||
+      dto.dimensionPriceMode !== undefined;
 
     if (itemChanged) {
       if (dto.description !== undefined) {
@@ -689,12 +771,32 @@ export class InventoryService {
       if (dto.itemType !== undefined) {
         stock.item.itemType = dto.itemType;
       }
+      await this.assertStockUomChangeAllowed(
+        stock.itemId,
+        stock.item.stockUomId,
+        dto.stockUomId,
+      );
+      const nextStockUomId =
+        dto.stockUomId !== undefined
+          ? dto.stockUomId
+          : stock.item.stockUomId;
+      await this.assertTxnUomSameCategory(
+        nextStockUomId,
+        dto.salesUomId,
+        'Sales',
+      );
+      await this.assertTxnUomSameCategory(
+        nextStockUomId,
+        dto.purchaseUomId,
+        'Purchase',
+      );
       await this.applyItemUoms(stock.item, {
         unit: dto.unit,
         stockUomId: dto.stockUomId,
         salesUomId: dto.salesUomId,
         purchaseUomId: dto.purchaseUomId,
         uomWidth: dto.uomWidth,
+        dimensionPriceMode: dto.dimensionPriceMode,
       });
       await this.itemRepo.save(stock.item);
     }

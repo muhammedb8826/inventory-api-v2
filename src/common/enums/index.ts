@@ -99,6 +99,16 @@ export enum BomType {
   KIT = 'KIT',
 }
 
+/**
+ * When sale/purchase lines carry W×H cuts:
+ * AREA = unitPrice is per stock-area unit (m²); PIECE = unitPrice is per piece.
+ * Null on item = non-dimensional (plain qty × price).
+ */
+export enum DimensionPriceMode {
+  AREA = 'AREA',
+  PIECE = 'PIECE',
+}
+
 export enum ProductionOrderStatus {
   DRAFT = 'DRAFT',
   RELEASED = 'RELEASED',

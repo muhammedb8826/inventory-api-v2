@@ -29,7 +29,8 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { CreatePurchaseDto, PurchaseLineDto } from './dto/purchase.dto';
 import { UpdatePurchaseDto } from './dto/update-purchase.dto';
 import { UomConversionService } from '../uom/uom-conversion.service';
-import { loadItemForUom, resolveLineUom } from '../uom/resolve-line-uom';
+import { resolveDimensionalLine } from '../uom/resolve-dimensional-line';
+import { loadItemForUom } from '../uom/resolve-line-uom';
 
 function stockQtyOf(line: {
   quantity: string | number;
@@ -154,6 +155,9 @@ export class PurchasesService {
       quantity: parseFloat(l.quantity),
       uomId: l.uomId ?? undefined,
       unitPrice: parseFloat(l.unitPrice),
+      width: l.dimWidth != null ? parseFloat(l.dimWidth) : undefined,
+      height: l.dimHeight != null ? parseFloat(l.dimHeight) : undefined,
+      pieces: l.dimPieces != null ? parseFloat(l.dimPieces) : undefined,
     }));
   }
 
@@ -228,11 +232,6 @@ export class PurchasesService {
         );
       }
 
-      const subtotal = lines.reduce(
-        (sum, l) => sum + l.quantity * l.unitPrice,
-        0,
-      );
-
       const oldLocationId = purchase.locationId;
       const oldPaymentMethod = purchase.paymentMethod;
       const oldBankAccountId = purchase.bankAccountId;
@@ -266,27 +265,26 @@ export class PurchasesService {
 
       const resolved: {
         line: PurchaseLineDto;
-        stockQuantity: number;
-        uomId: string | null;
+        dim: Awaited<ReturnType<typeof resolveDimensionalLine>>;
       }[] = [];
       for (const l of lines) {
         const item = await loadItemForUom(manager, l.itemId);
         if (!item) {
           throw new BadRequestException(`Item not found: ${l.itemId}`);
         }
-        const r = await resolveLineUom(
+        const dim = await resolveDimensionalLine(
           this.uomConversion,
           item,
           'purchase',
-          l.quantity,
+          l.quantity ?? l.pieces ?? 1,
+          l.unitPrice,
           l.uomId,
+          { width: l.width, height: l.height, pieces: l.pieces },
         );
-        resolved.push({
-          line: l,
-          stockQuantity: r.stockQuantity,
-          uomId: r.uomId,
-        });
+        resolved.push({ line: l, dim });
       }
+
+      const subtotal = resolved.reduce((sum, r) => sum + r.dim.lineTotal, 0);
 
       purchase.supplierId = supplierId;
       purchase.locationId = locationId;
@@ -295,30 +293,32 @@ export class PurchasesService {
       purchase.subtotal = subtotal.toFixed(2);
       purchase.total = subtotal.toFixed(2);
       purchase.notes = notes;
-      purchase.lines = resolved.map(({ line: l, stockQuantity, uomId }) => {
-        const lineTotal = l.quantity * l.unitPrice;
-        return Object.assign(new PurchaseLine(), {
+      purchase.lines = resolved.map(({ line: l, dim }) =>
+        Object.assign(new PurchaseLine(), {
           itemId: l.itemId,
-          quantity: l.quantity.toFixed(3),
-          uomId,
-          stockQuantity: stockQuantity.toFixed(3),
+          quantity: dim.quantity.toFixed(3),
+          uomId: dim.uomId,
+          stockQuantity: dim.stockQuantity.toFixed(3),
           unitPrice: l.unitPrice.toFixed(2),
-          lineTotal: lineTotal.toFixed(2),
-        });
-      });
+          lineTotal: dim.lineTotal.toFixed(2),
+          dimWidth: dim.dimWidth != null ? dim.dimWidth.toFixed(9) : null,
+          dimHeight: dim.dimHeight != null ? dim.dimHeight.toFixed(9) : null,
+          dimPieces: dim.dimPieces != null ? dim.dimPieces.toFixed(3) : null,
+        }),
+      );
 
       await purchaseRepo.save(purchase);
 
-      for (const { line, stockQuantity } of resolved) {
+      for (const { dim } of resolved) {
         const stockUnitCost =
-          stockQuantity > 0
-            ? (line.quantity * line.unitPrice) / stockQuantity
-            : line.unitPrice;
+          dim.stockQuantity > 0
+            ? dim.lineTotal / dim.stockQuantity
+            : dim.lineTotal;
         await this.stockService.adjust(
           {
             locationId,
-            itemId: line.itemId,
-            quantityDelta: stockQuantity,
+            itemId: dim.itemId,
+            quantityDelta: dim.stockQuantity,
             purchasePrice: stockUnitCost,
           },
           manager,
@@ -426,12 +426,7 @@ export class PurchasesService {
       );
     }
 
-    const subtotal = dto.lines.reduce(
-      (sum, l) => sum + l.quantity * l.unitPrice,
-      0,
-    );
-
-    const purchaseId = await this.dataSource.transaction(async (manager) => {
+    const created = await this.dataSource.transaction(async (manager) => {
       if (needsBank && dto.bankAccountId) {
         await this.banksService.assertPaymentAccount(
           dto.paymentMethod,
@@ -445,39 +440,40 @@ export class PurchasesService {
 
       const resolved: {
         line: PurchaseLineDto;
-        stockQuantity: number;
-        uomId: string | null;
+        dim: Awaited<ReturnType<typeof resolveDimensionalLine>>;
       }[] = [];
       for (const l of dto.lines) {
         const item = await loadItemForUom(manager, l.itemId);
         if (!item) {
           throw new BadRequestException(`Item not found: ${l.itemId}`);
         }
-        const r = await resolveLineUom(
+        const dim = await resolveDimensionalLine(
           this.uomConversion,
           item,
           'purchase',
-          l.quantity,
+          l.quantity ?? l.pieces ?? 1,
+          l.unitPrice,
           l.uomId,
+          { width: l.width, height: l.height, pieces: l.pieces },
         );
-        resolved.push({
-          line: l,
-          stockQuantity: r.stockQuantity,
-          uomId: r.uomId,
-        });
+        resolved.push({ line: l, dim });
       }
 
-      const lines = resolved.map(({ line: l, stockQuantity, uomId }) => {
-        const lineTotal = l.quantity * l.unitPrice;
-        return Object.assign(new PurchaseLine(), {
+      const subtotal = resolved.reduce((sum, r) => sum + r.dim.lineTotal, 0);
+
+      const lines = resolved.map(({ line: l, dim }) =>
+        Object.assign(new PurchaseLine(), {
           itemId: l.itemId,
-          quantity: l.quantity.toFixed(3),
-          uomId,
-          stockQuantity: stockQuantity.toFixed(3),
+          quantity: dim.quantity.toFixed(3),
+          uomId: dim.uomId,
+          stockQuantity: dim.stockQuantity.toFixed(3),
           unitPrice: l.unitPrice.toFixed(2),
-          lineTotal: lineTotal.toFixed(2),
-        });
-      });
+          lineTotal: dim.lineTotal.toFixed(2),
+          dimWidth: dim.dimWidth != null ? dim.dimWidth.toFixed(9) : null,
+          dimHeight: dim.dimHeight != null ? dim.dimHeight.toFixed(9) : null,
+          dimPieces: dim.dimPieces != null ? dim.dimPieces.toFixed(3) : null,
+        }),
+      );
 
       const purchase = await purchaseRepo.save(
         purchaseRepo.create({
@@ -494,17 +490,16 @@ export class PurchasesService {
         }),
       );
 
-      for (const { line, stockQuantity } of resolved) {
-        // purchasePrice is per transaction UOM; convert to stock-UOM cost
+      for (const { dim } of resolved) {
         const stockUnitCost =
-          stockQuantity > 0
-            ? (line.quantity * line.unitPrice) / stockQuantity
-            : line.unitPrice;
+          dim.stockQuantity > 0
+            ? dim.lineTotal / dim.stockQuantity
+            : dim.lineTotal;
         await this.stockService.adjust(
           {
             locationId: dto.locationId,
-            itemId: line.itemId,
-            quantityDelta: stockQuantity,
+            itemId: dim.itemId,
+            quantityDelta: dim.stockQuantity,
             purchasePrice: stockUnitCost,
           },
           manager,
@@ -542,16 +537,16 @@ export class PurchasesService {
         );
       }
 
-      return purchase.id;
+      return { purchaseId: purchase.id, subtotal };
     });
 
     await this.notifications.onPurchaseRecorded({
-      purchaseId,
-      total: subtotal.toFixed(2),
+      purchaseId: created.purchaseId,
+      total: created.subtotal.toFixed(2),
       actorUserId: userId,
       creditDueDate: dto.creditDueDate ?? null,
     });
 
-    return this.findOne(purchaseId);
+    return this.findOne(created.purchaseId);
   }
 }

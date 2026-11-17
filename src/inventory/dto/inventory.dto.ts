@@ -10,7 +10,7 @@ import {
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
-import { ItemType } from '../../common/enums';
+import { DimensionPriceMode, ItemType } from '../../common/enums';
 import { VariantAttributeDto } from './variant-attribute.dto';
 
 export class CreateInventoryDto {
@@ -56,6 +56,12 @@ export class CreateInventoryDto {
   @IsNumber()
   @Min(0)
   uomWidth?: number;
+
+  /** Cut-line pricing: AREA (per m²) or PIECE. Null/omit = non-dimensional. */
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsEnum(DimensionPriceMode)
+  dimensionPriceMode?: DimensionPriceMode | null;
 
   @IsOptional()
   @IsEnum(ItemType)
@@ -120,6 +126,11 @@ export class UpdateInventoryDto {
   @IsNumber()
   @Min(0)
   uomWidth?: number | null;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsEnum(DimensionPriceMode)
+  dimensionPriceMode?: DimensionPriceMode | null;
 
   @IsOptional()
   @IsEnum(ItemType)

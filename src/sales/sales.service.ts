@@ -44,7 +44,8 @@ import { CreateSaleDto, SaleLineDto } from './dto/sale.dto';
 import { UpdateSaleDto } from './dto/update-sale.dto';
 import { KitSaleService } from './kit-sale.service';
 import { UomConversionService } from '../uom/uom-conversion.service';
-import { loadItemForUom, resolveLineUom } from '../uom/resolve-line-uom';
+import { resolveDimensionalLine } from '../uom/resolve-dimensional-line';
+import { loadItemForUom } from '../uom/resolve-line-uom';
 
 type SaleCommissionLineInput = Pick<
   SaleLine,
@@ -60,6 +61,9 @@ type SaleLineDraft = Pick<
   | 'unitPrice'
   | 'purchaseCost'
   | 'lineTotal'
+  | 'dimWidth'
+  | 'dimHeight'
+  | 'dimPieces'
 > & {
   components?: SaleLineComponent[];
 };
@@ -294,6 +298,9 @@ export class SalesService {
       quantity: parseFloat(l.quantity),
       uomId: l.uomId ?? undefined,
       unitPrice: parseFloat(l.unitPrice),
+      width: l.dimWidth != null ? parseFloat(l.dimWidth) : undefined,
+      height: l.dimHeight != null ? parseFloat(l.dimHeight) : undefined,
+      pieces: l.dimPieces != null ? parseFloat(l.dimPieces) : undefined,
     }));
   }
 
@@ -468,11 +475,6 @@ export class SalesService {
         );
       }
 
-      const subtotal = lines.reduce(
-        (sum, l) => sum + l.quantity * l.unitPrice,
-        0,
-      );
-
       const oldLocationId = sale.locationId;
       const oldPaymentMethod = sale.paymentMethod;
       const oldBankAccountId = sale.bankAccountId;
@@ -492,8 +494,7 @@ export class SalesService {
 
       const resolvedLines: {
         line: (typeof lines)[number];
-        stockQuantity: number;
-        uomId: string | null;
+        dim: Awaited<ReturnType<typeof resolveDimensionalLine>>;
         explosion: Awaited<ReturnType<KitSaleService['explodeSaleLine']>>;
       }[] = [];
       for (const line of lines) {
@@ -501,25 +502,29 @@ export class SalesService {
         if (!item) {
           throw new BadRequestException(`Item not found: ${line.itemId}`);
         }
-        const resolved = await resolveLineUom(
+        const dtoLine = line as SaleLineDto;
+        const dim = await resolveDimensionalLine(
           this.uomConversion,
           item,
           'sales',
-          line.quantity,
-          (line as SaleLineDto).uomId,
+          dtoLine.quantity ?? dtoLine.pieces ?? 1,
+          dtoLine.unitPrice,
+          dtoLine.uomId,
+          {
+            width: dtoLine.width,
+            height: dtoLine.height,
+            pieces: dtoLine.pieces,
+          },
         );
         const explosion = await this.kitSale.explodeSaleLine(
           line.itemId,
-          resolved.stockQuantity,
+          dim.stockQuantity,
           manager,
         );
-        resolvedLines.push({
-          line,
-          stockQuantity: resolved.stockQuantity,
-          uomId: resolved.uomId,
-          explosion,
-        });
+        resolvedLines.push({ line, dim, explosion });
       }
+
+      const subtotal = resolvedLines.reduce((sum, l) => sum + l.dim.lineTotal, 0);
 
       stockWarnings = await this.stockService.checkAvailability(
         locationId,
@@ -547,22 +552,24 @@ export class SalesService {
       await lineRepo.delete({ saleId: sale.id });
 
       const saleLines: SaleLineDraft[] = [];
-      for (const { line, stockQuantity, uomId, explosion } of resolvedLines) {
+      for (const { line, dim, explosion } of resolvedLines) {
         const purchaseCost = await this.kitUnitPurchaseCost(
           locationId,
-          stockQuantity,
+          dim.stockQuantity,
           explosion.moves,
           manager,
         );
-        const lineTotal = line.quantity * line.unitPrice;
         saleLines.push({
           itemId: line.itemId,
-          quantity: line.quantity.toFixed(3),
-          uomId,
-          stockQuantity: stockQuantity.toFixed(3),
+          quantity: dim.quantity.toFixed(3),
+          uomId: dim.uomId,
+          stockQuantity: dim.stockQuantity.toFixed(3),
           unitPrice: line.unitPrice.toFixed(2),
           purchaseCost: purchaseCost.toFixed(2),
-          lineTotal: lineTotal.toFixed(2),
+          lineTotal: dim.lineTotal.toFixed(2),
+          dimWidth: dim.dimWidth != null ? dim.dimWidth.toFixed(9) : null,
+          dimHeight: dim.dimHeight != null ? dim.dimHeight.toFixed(9) : null,
+          dimPieces: dim.dimPieces != null ? dim.dimPieces.toFixed(3) : null,
           components: explosion.isKit
             ? explosion.moves.map((m) =>
                 Object.assign(new SaleLineComponent(), {
@@ -772,8 +779,7 @@ export class SalesService {
 
       const resolvedLines: {
         dto: SaleLineDto;
-        stockQuantity: number;
-        uomId: string | null;
+        dim: Awaited<ReturnType<typeof resolveDimensionalLine>>;
         explosion: Awaited<ReturnType<KitSaleService['explodeSaleLine']>>;
       }[] = [];
       for (const line of dto.lines) {
@@ -781,24 +787,25 @@ export class SalesService {
         if (!item) {
           throw new BadRequestException(`Item not found: ${line.itemId}`);
         }
-        const resolved = await resolveLineUom(
+        const dim = await resolveDimensionalLine(
           this.uomConversion,
           item,
           'sales',
-          line.quantity,
+          line.quantity ?? line.pieces ?? 1,
+          line.unitPrice,
           line.uomId,
+          {
+            width: line.width,
+            height: line.height,
+            pieces: line.pieces,
+          },
         );
         const explosion = await this.kitSale.explodeSaleLine(
           line.itemId,
-          resolved.stockQuantity,
+          dim.stockQuantity,
           manager,
         );
-        resolvedLines.push({
-          dto: line,
-          stockQuantity: resolved.stockQuantity,
-          uomId: resolved.uomId,
-          explosion,
-        });
+        resolvedLines.push({ dto: line, dim, explosion });
       }
 
       const stockWarnings = await this.stockService.checkAvailability(
@@ -813,28 +820,25 @@ export class SalesService {
       const saleLines: SaleLineDraft[] = [];
       let subtotal = 0;
 
-      for (const {
-        dto: line,
-        stockQuantity,
-        uomId,
-        explosion,
-      } of resolvedLines) {
+      for (const { dto: line, dim, explosion } of resolvedLines) {
         const purchaseCost = await this.kitUnitPurchaseCost(
           dto.locationId,
-          stockQuantity,
+          dim.stockQuantity,
           explosion.moves,
           manager,
         );
-        const lineTotal = line.quantity * line.unitPrice;
-        subtotal += lineTotal;
+        subtotal += dim.lineTotal;
         saleLines.push({
           itemId: line.itemId,
-          quantity: line.quantity.toFixed(3),
-          uomId,
-          stockQuantity: stockQuantity.toFixed(3),
+          quantity: dim.quantity.toFixed(3),
+          uomId: dim.uomId,
+          stockQuantity: dim.stockQuantity.toFixed(3),
           unitPrice: line.unitPrice.toFixed(2),
           purchaseCost: purchaseCost.toFixed(2),
-          lineTotal: lineTotal.toFixed(2),
+          lineTotal: dim.lineTotal.toFixed(2),
+          dimWidth: dim.dimWidth != null ? dim.dimWidth.toFixed(9) : null,
+          dimHeight: dim.dimHeight != null ? dim.dimHeight.toFixed(9) : null,
+          dimPieces: dim.dimPieces != null ? dim.dimPieces.toFixed(3) : null,
           components: explosion.isKit
             ? explosion.moves.map((m) =>
                 Object.assign(new SaleLineComponent(), {

@@ -7,7 +7,7 @@ import {
   OneToMany,
   UpdateDateColumn,
 } from 'typeorm';
-import { ItemType } from '../../common/enums';
+import { DimensionPriceMode, ItemType } from '../../common/enums';
 import { StockLevel } from './stock-level.entity';
 import { UuidBaseEntity } from './uuid-base.entity';
 import { Uom } from './uom.entity';
@@ -53,6 +53,19 @@ export class Item extends UuidBaseEntity {
     nullable: true,
   })
   uomWidth: string | null;
+
+  /**
+   * Cut-line pricing: AREA (per m²) or PIECE (per piece).
+   * Null = dimensions not used; plain qty × price.
+   */
+  @Column({
+    name: 'dimension_price_mode',
+    type: 'enum',
+    enum: DimensionPriceMode,
+    enumName: 'items_dimension_price_mode_enum',
+    nullable: true,
+  })
+  dimensionPriceMode: DimensionPriceMode | null;
 
   @Column({
     name: 'item_type',

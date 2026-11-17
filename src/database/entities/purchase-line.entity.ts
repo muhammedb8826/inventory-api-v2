@@ -35,6 +35,34 @@ export class PurchaseLine extends UuidBaseEntity {
   @Column({ type: 'decimal', precision: 14, scale: 2 })
   lineTotal: string;
 
+  /** Cut width. Null = roll / plain qty line. */
+  @Column({
+    name: 'dim_width',
+    type: 'decimal',
+    precision: 18,
+    scale: 9,
+    nullable: true,
+  })
+  dimWidth: string | null;
+
+  @Column({
+    name: 'dim_height',
+    type: 'decimal',
+    precision: 18,
+    scale: 9,
+    nullable: true,
+  })
+  dimHeight: string | null;
+
+  @Column({
+    name: 'dim_pieces',
+    type: 'decimal',
+    precision: 14,
+    scale: 3,
+    nullable: true,
+  })
+  dimPieces: string | null;
+
   @ManyToOne(() => Purchase, (purchase) => purchase.lines, {
     onDelete: 'CASCADE',
   })
