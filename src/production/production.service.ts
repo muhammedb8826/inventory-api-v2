@@ -24,6 +24,7 @@ import {
   IssueProductionDto,
   ProductionOrderListQueryDto,
 } from './dto/production-order.dto';
+import { ManufactureExplodeService } from './manufacture-explode.service';
 
 @Injectable()
 export class ProductionService {
@@ -40,6 +41,7 @@ export class ProductionService {
     private readonly dataSource: DataSource,
     private readonly stockService: StockService,
     private readonly lowStockService: LowStockService,
+    private readonly manufactureExplode: ManufactureExplodeService,
   ) {}
 
   findAll(query: ProductionOrderListQueryDto) {
@@ -123,7 +125,12 @@ export class ProductionService {
       );
     }
     const stockableFinishedId = bom.variantItemId ?? bom.finishedItemId;
-    const bomQty = Math.max(parseFloat(bom.quantity || '1') || 1, 0.001);
+
+    // Multi-level: nested Manufacture BoMs explode to leaf materials.
+    const exploded = await this.manufactureExplode.explodeRootBom(
+      bom,
+      dto.quantityPlanned,
+    );
 
     const order = await this.orderRepo.save(
       this.orderRepo.create({
@@ -135,21 +142,13 @@ export class ProductionService {
         status: ProductionOrderStatus.DRAFT,
         notes: dto.notes?.trim() || null,
         createdById: userId ?? null,
-        lines: bom.lines.map((line) => {
-          // stockQuantity already includes scrap conversion to component stock UOM
-          // Scale by production qty / BoM header quantity.
-          const perBomQty =
-            line.stockQuantity != null && line.stockQuantity !== ''
-              ? parseFloat(line.stockQuantity)
-              : parseFloat(line.quantity) *
-                (1 + (parseFloat(line.scrapPercent) || 0) / 100);
-          const required = (perBomQty / bomQty) * dto.quantityPlanned;
-          return Object.assign(new ProductionOrderLine(), {
-            componentItemId: line.componentItemId,
-            quantityRequired: required.toFixed(3),
+        lines: exploded.map((row) =>
+          Object.assign(new ProductionOrderLine(), {
+            componentItemId: row.componentItemId,
+            quantityRequired: row.quantityRequired.toFixed(3),
             quantityIssued: '0.000',
-          });
-        }),
+          }),
+        ),
       }),
     );
 
@@ -471,12 +470,12 @@ export class ProductionService {
         order.status === ProductionOrderStatus.CANCELLED
       ) {
         throw new BadRequestException(
-          'Completed or cancelled orders cannot be cancelled',
+          'Completed or cancelled orders cannot be cancelled. Use Reverse for completed orders.',
         );
       }
       if (parseFloat(order.quantityCompleted) > 0) {
         throw new BadRequestException(
-          'Cannot cancel an order with completed finished goods; reverse via stock adjustment if needed',
+          'Cannot cancel an order with completed finished goods; use Reverse instead',
         );
       }
 
@@ -505,6 +504,105 @@ export class ProductionService {
       }
 
       order.status = ProductionOrderStatus.CANCELLED;
+      await orderRepo.save(order);
+    });
+
+    for (const change of stockChanges) {
+      await this.lowStockService.evaluate(
+        change.locationId,
+        change.itemId,
+        change.previous,
+      );
+    }
+
+    return this.findOne(id);
+  }
+
+  /**
+   * Reverse a COMPLETED order: remove FG, return issued components, cancel.
+   * ERP-style void of a finished production receipt.
+   */
+  async reverse(id: string) {
+    const stockChanges: {
+      locationId: string;
+      itemId: string;
+      previous: number;
+    }[] = [];
+
+    await this.dataSource.transaction(async (manager) => {
+      const orderRepo = manager.getRepository(ProductionOrder);
+      const order = await orderRepo.findOne({
+        where: { id },
+        relations: {
+          lines: { componentItem: true },
+          finishedItem: true,
+        },
+      });
+      if (!order) throw new NotFoundException('Production order not found');
+      if (order.status !== ProductionOrderStatus.COMPLETED) {
+        throw new BadRequestException(
+          'Only COMPLETED orders can be reversed',
+        );
+      }
+
+      const completed = parseFloat(order.quantityCompleted);
+      if (completed <= 0) {
+        throw new BadRequestException('Nothing to reverse');
+      }
+
+      const fgPrevious = await this.stockService.getQuantity(
+        order.locationId,
+        order.finishedItemId,
+        manager,
+      );
+      if (fgPrevious < completed) {
+        const label = this.formatItemLabel(order.finishedItem);
+        throw new BadRequestException(
+          `Cannot reverse: only ${this.fmtQty(fgPrevious)} of ${label} remains in stock (need ${this.fmtQty(completed)})`,
+        );
+      }
+
+      await this.stockService.adjust(
+        {
+          locationId: order.locationId,
+          itemId: order.finishedItemId,
+          quantityDelta: -completed,
+        },
+        manager,
+      );
+      stockChanges.push({
+        locationId: order.locationId,
+        itemId: order.finishedItemId,
+        previous: fgPrevious,
+      });
+
+      for (const line of order.lines) {
+        const issued = parseFloat(line.quantityIssued);
+        if (issued <= 0) continue;
+        const previous = await this.stockService.getQuantity(
+          order.locationId,
+          line.componentItemId,
+          manager,
+        );
+        await this.stockService.adjust(
+          {
+            locationId: order.locationId,
+            itemId: line.componentItemId,
+            quantityDelta: issued,
+          },
+          manager,
+        );
+        line.quantityIssued = '0.000';
+        stockChanges.push({
+          locationId: order.locationId,
+          itemId: line.componentItemId,
+          previous,
+        });
+      }
+
+      order.quantityCompleted = '0.000';
+      order.status = ProductionOrderStatus.CANCELLED;
+      order.completedAt = null;
       await orderRepo.save(order);
     });
 

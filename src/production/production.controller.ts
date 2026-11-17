@@ -69,4 +69,10 @@ export class ProductionController {
   cancel(@Param('id') id: string) {
     return this.productionService.cancel(id);
   }
+
+  @Post(':id/reverse')
+  @RequirePermissions('production.write')
+  reverse(@Param('id') id: string) {
+    return this.productionService.reverse(id);
+  }
 }

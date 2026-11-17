@@ -160,6 +160,32 @@ export class UomConversionService {
     return stockQuantity / oneInStock;
   }
 
+  /**
+   * Convert a length measurement into the LENGTH category base (meters).
+   * When `uomId` is omitted, the value is already assumed to be in meters.
+   */
+  async toLengthBase(
+    value: number,
+    uomId?: string | null,
+  ): Promise<{ base: number; uom: Uom | null }> {
+    if (!Number.isFinite(value)) {
+      throw new BadRequestException('Invalid length value');
+    }
+    if (!uomId) {
+      return { base: value, uom: null };
+    }
+    const uom = await this.requireUom(uomId);
+    if (uom.category?.code !== LENGTH) {
+      throw new BadRequestException(
+        'Cut dimension UOM must be a Length unit (m, cm, mm)',
+      );
+    }
+    return {
+      base: value * parseFloat(uom.conversionFactor || '1'),
+      uom,
+    };
+  }
+
   private async requireUom(id: string): Promise<Uom> {
     const uom = await this.uomRepo.findOne({
       where: { id },

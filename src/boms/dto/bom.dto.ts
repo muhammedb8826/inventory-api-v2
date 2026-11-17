@@ -23,10 +23,12 @@ export class BomLineDto {
   @IsUUID()
   componentItemId: string;
 
+  /** Required unless width+height cut is provided. */
+  @ValidateIf((o: BomLineDto) => o.width == null || o.height == null)
   @Type(() => Number)
   @IsNumber()
   @Min(0.001)
-  quantity: number;
+  quantity?: number;
 
   /** Component UOM; defaults to component stock UOM. */
   @IsOptional()
@@ -39,6 +41,30 @@ export class BomLineDto {
   @Min(0)
   @Max(100)
   scrapPercent?: number;
+
+  /** Cut dimensions (Area stock components with dimension pricing). */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.000000001)
+  width?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.000000001)
+  height?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  pieces?: number;
+
+  /** Length UOM for W×H (m/cm/mm). Omit = meters. */
+  @IsOptional()
+  @IsUUID()
+  dimUomId?: string;
 }
 
 /** PATCH lines — ignores read-only fields from GET responses. */
@@ -54,6 +80,24 @@ export class UpdateBomLineDto extends BomLineDto {
 
   @Allow()
   bom?: unknown;
+
+  @Allow()
+  uom?: unknown;
+
+  @Allow()
+  stockQuantity?: unknown;
+
+  @Allow()
+  dimWidth?: unknown;
+
+  @Allow()
+  dimHeight?: unknown;
+
+  @Allow()
+  dimPieces?: unknown;
+
+  @Allow()
+  dimUom?: unknown;
 }
 
 export class CreateBomDto {

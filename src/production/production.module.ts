@@ -7,6 +7,7 @@ import { ProductionOrderLine } from '../database/entities/production-order-line.
 import { ProductionOrder } from '../database/entities/production-order.entity';
 import { InventoryModule } from '../inventory/inventory.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { ManufactureExplodeService } from './manufacture-explode.service';
 import { ProductionController } from './production.controller';
 import { ProductionService } from './production.service';
 
@@ -23,6 +24,6 @@ import { ProductionService } from './production.service';
     NotificationsModule,
   ],
   controllers: [ProductionController],
-  providers: [ProductionService],
+  providers: [ProductionService, ManufactureExplodeService],
 })
 export class ProductionModule {}

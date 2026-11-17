@@ -10,12 +10,15 @@ export type LineDimensionsInput = {
   width?: number | null;
   height?: number | null;
   pieces?: number | null;
+  /** Length UOM for W×H (m/cm/mm). Omit = meters (LENGTH base). */
+  dimUomId?: string | null;
 };
 
 export type ResolvedDimensionalLine = ResolvedLineUom & {
   dimWidth: number | null;
   dimHeight: number | null;
   dimPieces: number | null;
+  dimUomId: string | null;
   lineTotal: number;
   /** True when W×H cut math was applied. */
   isCut: boolean;
@@ -84,7 +87,14 @@ export async function resolveDimensionalLine(
       );
     }
 
-    const areaBase = width * height * pieces;
+    const [wLen, hLen] = await Promise.all([
+      conversion.toLengthBase(width, dims?.dimUomId),
+      conversion.toLengthBase(height, dims?.dimUomId),
+    ]);
+    const dimUomId = wLen.uom?.id ?? dims?.dimUomId ?? null;
+
+    // Area in category base (m² when LENGTH base is meters).
+    const areaBase = wLen.base * hLen.base * pieces;
     let stockQuantity = areaBase;
     if (item.stockUomId && item.stockUom) {
       const stockF = parseFloat(item.stockUom.conversionFactor || '1');
@@ -118,6 +128,7 @@ export async function resolveDimensionalLine(
       dimWidth: width,
       dimHeight: height,
       dimPieces: pieces,
+      dimUomId,
       lineTotal,
       isCut: true,
     };
@@ -135,6 +146,7 @@ export async function resolveDimensionalLine(
     dimWidth: null,
     dimHeight: null,
     dimPieces: null,
+    dimUomId: null,
     lineTotal: quantity * unitPrice,
     isCut: false,
   };

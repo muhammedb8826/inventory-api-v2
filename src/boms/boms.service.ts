@@ -13,6 +13,7 @@ import {
 import { BomLine } from '../database/entities/bom-line.entity';
 import { Bom } from '../database/entities/bom.entity';
 import { Item } from '../database/entities/item.entity';
+import { ProductionOrder } from '../database/entities/production-order.entity';
 import {
   BomListQueryDto,
   BomLineDto,
@@ -20,7 +21,7 @@ import {
   UpdateBomDto,
 } from './dto/bom.dto';
 import { UomConversionService } from '../uom/uom-conversion.service';
-import { resolveLineUom } from '../uom/resolve-line-uom';
+import { resolveDimensionalLine } from '../uom/resolve-dimensional-line';
 
 @Injectable()
 export class BomsService {
@@ -39,6 +40,8 @@ export class BomsService {
         where: { id: line.componentItemId },
         relations: {
           stockUom: { category: true },
+          salesUom: { category: true },
+          purchaseUom: { category: true },
           itemUoms: true,
         },
       });
@@ -47,21 +50,35 @@ export class BomsService {
           `Component item not found: ${line.componentItemId}`,
         );
       }
-      const resolved = await resolveLineUom(
+      const dim = await resolveDimensionalLine(
         this.uomConversion,
         item,
         'stock',
-        line.quantity,
+        line.quantity ?? line.pieces ?? 1,
+        0,
         line.uomId,
+        {
+          width: line.width,
+          height: line.height,
+          pieces: line.pieces,
+          dimUomId: line.dimUomId,
+        },
       );
       const scrap = line.scrapPercent ?? 0;
-      const stockWithScrap = resolved.stockQuantity * (1 + scrap / 100);
+      const stockWithScrap = dim.stockQuantity * (1 + scrap / 100);
       out.push({
         componentItemId: line.componentItemId,
-        quantity: line.quantity.toFixed(3),
-        uomId: resolved.uomId,
+        quantity: dim.quantity.toFixed(3),
+        uomId: dim.uomId,
         stockQuantity: stockWithScrap.toFixed(3),
         scrapPercent: scrap.toFixed(2),
+        dimWidth:
+          dim.dimWidth != null ? dim.dimWidth.toFixed(9) : null,
+        dimHeight:
+          dim.dimHeight != null ? dim.dimHeight.toFixed(9) : null,
+        dimPieces:
+          dim.dimPieces != null ? dim.dimPieces.toFixed(3) : null,
+        dimUomId: dim.dimUomId,
       });
     }
     return out;
@@ -86,7 +103,10 @@ export class BomsService {
       }),
       this.itemRepo.find({
         where: { isActive: true, isTemplate: false },
-        relations: { stockUom: true, parentItem: true },
+        relations: {
+          stockUom: { category: true },
+          parentItem: true,
+        },
         order: { description: 'ASC' },
       }),
       this.itemRepo.find({
@@ -160,8 +180,9 @@ export class BomsService {
           itemAttributeValues: { attributeValue: { attribute: true } },
         },
         lines: {
-          componentItem: { stockUom: true },
+          componentItem: { stockUom: { category: true } },
           uom: true,
+          dimUom: true,
         },
       },
     });
@@ -250,11 +271,35 @@ export class BomsService {
     return this.findOne(id);
   }
 
+  /**
+   * Delete unused BoMs. If production orders reference it, archive (deactivate)
+   * instead — same pattern as Odoo/ERPNext (history must keep the recipe).
+   */
   async remove(id: string) {
     const bom = await this.findOne(id);
-    bom.isActive = false;
-    await this.bomRepo.save(bom);
-    return { success: true };
+    const productionCount = await this.bomRepo.manager
+      .getRepository(ProductionOrder)
+      .count({ where: { bomId: id } });
+
+    if (productionCount > 0) {
+      if (bom.isActive === false) {
+        throw new BadRequestException(
+          'This BoM is already inactive and is used by production orders, so it cannot be permanently deleted.',
+        );
+      }
+      bom.isActive = false;
+      await this.bomRepo.save(bom);
+      return {
+        success: true,
+        deleted: false,
+        deactivated: true,
+        message:
+          'BoM was used in production, so it was deactivated instead of deleted.',
+      };
+    }
+
+    await this.bomRepo.remove(bom);
+    return { success: true, deleted: true, deactivated: false };
   }
 
   private async assertFinishedItem(finishedItemId: string) {

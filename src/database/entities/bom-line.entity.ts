@@ -53,6 +53,38 @@ export class BomLine {
   })
   scrapPercent: string;
 
+  /** Cut width. Null = plain qty line. */
+  @Column({
+    name: 'dim_width',
+    type: 'decimal',
+    precision: 18,
+    scale: 9,
+    nullable: true,
+  })
+  dimWidth: string | null;
+
+  @Column({
+    name: 'dim_height',
+    type: 'decimal',
+    precision: 18,
+    scale: 9,
+    nullable: true,
+  })
+  dimHeight: string | null;
+
+  @Column({
+    name: 'dim_pieces',
+    type: 'decimal',
+    precision: 14,
+    scale: 3,
+    nullable: true,
+  })
+  dimPieces: string | null;
+
+  /** Length UOM for dimWidth/dimHeight (m/cm/mm). Null = meters. */
+  @Column({ name: 'dim_uom_id', type: 'uuid', nullable: true })
+  dimUomId: string | null;
+
   @ManyToOne(() => Bom, (bom) => bom.lines, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'bom_id' })
   bom: Bom;
@@ -64,4 +96,8 @@ export class BomLine {
   @ManyToOne(() => Uom, { nullable: true })
   @JoinColumn({ name: 'uom_id' })
   uom: Uom | null;
+
+  @ManyToOne(() => Uom, { nullable: true })
+  @JoinColumn({ name: 'dim_uom_id' })
+  dimUom: Uom | null;
 }
