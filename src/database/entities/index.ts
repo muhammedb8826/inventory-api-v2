@@ -15,6 +15,7 @@ export { Purchase } from './purchase.entity';
 export { PurchaseLine } from './purchase-line.entity';
 export { Sale } from './sale.entity';
 export { SaleLine } from './sale-line.entity';
+export { SaleLineComponent } from './sale-line-component.entity';
 export { CustomerCredit } from './customer-credit.entity';
 export { SupplierCredit } from './supplier-credit.entity';
 export { ExpenseCategory } from './expense-category.entity';
@@ -52,6 +53,7 @@ import { Purchase } from './purchase.entity';
 import { PurchaseLine } from './purchase-line.entity';
 import { Sale } from './sale.entity';
 import { SaleLine } from './sale-line.entity';
+import { SaleLineComponent } from './sale-line-component.entity';
 import { CustomerCredit } from './customer-credit.entity';
 import { SupplierCredit } from './supplier-credit.entity';
 import { ExpenseCategory } from './expense-category.entity';
@@ -90,6 +92,7 @@ export const entities = [
   PurchaseLine,
   Sale,
   SaleLine,
+  SaleLineComponent,
   CustomerCredit,
   SupplierCredit,
   ExpenseCategory,

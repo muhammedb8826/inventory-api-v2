@@ -172,4 +172,9 @@ export class BomListQueryDto extends ListQueryDto {
   @IsOptional()
   @IsString()
   isActive?: string;
+
+  /** Filter by BoM type, e.g. MANUFACTURE for production. */
+  @IsOptional()
+  @IsEnum(BomType)
+  bomType?: BomType;
 }

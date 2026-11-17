@@ -1,6 +1,7 @@
-import { Column, Entity, JoinColumn, ManyToOne } from 'typeorm';
+import { Column, Entity, JoinColumn, ManyToOne, OneToMany } from 'typeorm';
 import { Item } from './item.entity';
 import { Sale } from './sale.entity';
+import { SaleLineComponent } from './sale-line-component.entity';
 import { Uom } from './uom.entity';
 import { UuidBaseEntity } from './uuid-base.entity';
 
@@ -49,4 +50,8 @@ export class SaleLine extends UuidBaseEntity {
   @ManyToOne(() => Uom, { nullable: true, eager: true })
   @JoinColumn({ name: 'uom_id' })
   uom: Uom | null;
+
+  /** Kit component snapshot when this line sold a Kit BoM product. */
+  @OneToMany(() => SaleLineComponent, (c) => c.saleLine, { cascade: true })
+  components?: SaleLineComponent[];
 }

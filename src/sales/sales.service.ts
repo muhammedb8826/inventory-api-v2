@@ -15,7 +15,10 @@ import {
   DocumentStatus,
   PaymentMethod,
 } from '../common/enums';
-import { computeCommissionAmount } from '../common/utils/commission.util';
+import {
+  computeCommissionAmount,
+  stockQtyForCost,
+} from '../common/utils/commission.util';
 import {
   applyDateRangeToQb,
   applyRelatedIlikeSearch,
@@ -27,6 +30,7 @@ import { BankLedgerService } from '../banks/bank-ledger.service';
 import { BanksService } from '../banks/banks.service';
 import { CustomerCredit } from '../database/entities/customer-credit.entity';
 import { SaleLine } from '../database/entities/sale-line.entity';
+import { SaleLineComponent } from '../database/entities/sale-line-component.entity';
 import { Sale } from '../database/entities/sale.entity';
 import { User } from '../database/entities/user.entity';
 import { StockService } from '../inventory/stock.service';
@@ -38,6 +42,7 @@ import {
 import { CommissionSummaryQueryDto } from './dto/commission-summary-query.dto';
 import { CreateSaleDto, SaleLineDto } from './dto/sale.dto';
 import { UpdateSaleDto } from './dto/update-sale.dto';
+import { KitSaleService } from './kit-sale.service';
 import { UomConversionService } from '../uom/uom-conversion.service';
 import { loadItemForUom, resolveLineUom } from '../uom/resolve-line-uom';
 
@@ -55,19 +60,9 @@ type SaleLineDraft = Pick<
   | 'unitPrice'
   | 'purchaseCost'
   | 'lineTotal'
->;
-
-function stockQtyOf(line: {
-  quantity: string | number;
-  stockQuantity?: string | null;
-}): number {
-  if (line.stockQuantity != null && line.stockQuantity !== '') {
-    return parseFloat(String(line.stockQuantity));
-  }
-  return typeof line.quantity === 'number'
-    ? line.quantity
-    : parseFloat(line.quantity);
-}
+> & {
+  components?: SaleLineComponent[];
+};
 
 @Injectable()
 export class SalesService {
@@ -84,6 +79,7 @@ export class SalesService {
     private readonly notifications: NotificationsService,
     private readonly lowStockService: LowStockService,
     private readonly uomConversion: UomConversionService,
+    private readonly kitSale: KitSaleService,
   ) {}
 
   async findAll(query: SalesListQueryDto) {
@@ -163,6 +159,7 @@ export class SalesService {
         lines: {
           item: { stockUom: true },
           uom: true,
+          components: { componentItem: true },
         },
         credit: true,
         soldByUser: true,
@@ -233,7 +230,7 @@ export class SalesService {
 
   private lineProfit(lines: SaleCommissionLineInput[]): number {
     return lines.reduce((total, line) => {
-      const stockQty = stockQtyOf(line);
+      const stockQty = stockQtyForCost(line);
       const purchaseCost = parseFloat(line.purchaseCost);
       const revenue = parseFloat(line.lineTotal);
       return total + revenue - stockQty * purchaseCost;
@@ -302,6 +299,42 @@ export class SalesService {
 
   private paysViaBank(method: PaymentMethod): boolean {
     return method === PaymentMethod.BANK || method === PaymentMethod.CASH;
+  }
+
+  /**
+   * Cost per stock UOM of the sold line.
+   * Kits: weighted component COGS / kit stock qty. Plain items: stock purchase price.
+   */
+  private async kitUnitPurchaseCost(
+    locationId: string,
+    saleStockQuantity: number,
+    moves: { itemId: string; quantity: number }[],
+    manager: EntityManager,
+  ): Promise<number> {
+    if (moves.length === 1 && saleStockQuantity > 0) {
+      const only = moves[0];
+      // Same item as sold qty → unit cost is the stock purchase price.
+      if (Math.abs(only.quantity - saleStockQuantity) < 1e-9) {
+        const stock = await this.stockService.getStock(
+          locationId,
+          only.itemId,
+          manager,
+        );
+        return stock ? parseFloat(stock.purchasePrice) : 0;
+      }
+    }
+    let totalCost = 0;
+    for (const move of moves) {
+      const stock = await this.stockService.getStock(
+        locationId,
+        move.itemId,
+        manager,
+      );
+      const unit = stock ? parseFloat(stock.purchasePrice) : 0;
+      totalCost += unit * move.quantity;
+    }
+    if (saleStockQuantity <= 0) return totalCost;
+    return totalCost / saleStockQuantity;
   }
 
   async update(
@@ -386,7 +419,7 @@ export class SalesService {
 
       const sale = await saleRepo.findOne({
         where: { id },
-        relations: { lines: true, credit: true },
+        relations: { lines: { components: true }, credit: true },
       });
       if (!sale) throw new NotFoundException('Sale not found');
       if (sale.status === DocumentStatus.VOIDED) {
@@ -445,20 +478,23 @@ export class SalesService {
       const oldBankAccountId = sale.bankAccountId;
 
       for (const line of sale.lines) {
-        await this.stockService.adjust(
-          {
-            locationId: oldLocationId,
-            itemId: line.itemId,
-            quantityDelta: stockQtyOf(line),
-          },
-          manager,
-        );
+        for (const move of this.kitSale.restoreMovesForLine(line)) {
+          await this.stockService.adjust(
+            {
+              locationId: oldLocationId,
+              itemId: move.itemId,
+              quantityDelta: move.quantity,
+            },
+            manager,
+          );
+        }
       }
 
       const resolvedLines: {
         line: (typeof lines)[number];
         stockQuantity: number;
         uomId: string | null;
+        explosion: Awaited<ReturnType<KitSaleService['explodeSaleLine']>>;
       }[] = [];
       for (const line of lines) {
         const item = await loadItemForUom(manager, line.itemId);
@@ -472,19 +508,24 @@ export class SalesService {
           line.quantity,
           (line as SaleLineDto).uomId,
         );
+        const explosion = await this.kitSale.explodeSaleLine(
+          line.itemId,
+          resolved.stockQuantity,
+          manager,
+        );
         resolvedLines.push({
           line,
           stockQuantity: resolved.stockQuantity,
           uomId: resolved.uomId,
+          explosion,
         });
       }
 
       stockWarnings = await this.stockService.checkAvailability(
         locationId,
-        resolvedLines.map((l) => ({
-          itemId: l.line.itemId,
-          quantity: l.stockQuantity,
-        })),
+        this.kitSale.mergeMoves(
+          resolvedLines.flatMap((l) => l.explosion.moves),
+        ),
         allowNeg,
         manager,
       );
@@ -506,13 +547,13 @@ export class SalesService {
       await lineRepo.delete({ saleId: sale.id });
 
       const saleLines: SaleLineDraft[] = [];
-      for (const { line, stockQuantity, uomId } of resolvedLines) {
-        const stock = await this.stockService.getStock(
+      for (const { line, stockQuantity, uomId, explosion } of resolvedLines) {
+        const purchaseCost = await this.kitUnitPurchaseCost(
           locationId,
-          line.itemId,
+          stockQuantity,
+          explosion.moves,
           manager,
         );
-        const purchaseCost = stock ? parseFloat(stock.purchasePrice) : 0;
         const lineTotal = line.quantity * line.unitPrice;
         saleLines.push({
           itemId: line.itemId,
@@ -522,6 +563,14 @@ export class SalesService {
           unitPrice: line.unitPrice.toFixed(2),
           purchaseCost: purchaseCost.toFixed(2),
           lineTotal: lineTotal.toFixed(2),
+          components: explosion.isKit
+            ? explosion.moves.map((m) =>
+                Object.assign(new SaleLineComponent(), {
+                  componentItemId: m.itemId,
+                  stockQuantity: m.quantity.toFixed(3),
+                }),
+              )
+            : undefined,
         });
       }
 
@@ -553,25 +602,27 @@ export class SalesService {
 
       await saleRepo.save(sale);
 
-      for (const { line, stockQuantity } of resolvedLines) {
-        const previousQuantity = await this.stockService.getQuantity(
-          locationId,
-          line.itemId,
-          manager,
-        );
-        await this.stockService.adjust(
-          {
+      for (const { explosion } of resolvedLines) {
+        for (const move of explosion.moves) {
+          const previousQuantity = await this.stockService.getQuantity(
             locationId,
-            itemId: line.itemId,
-            quantityDelta: -stockQuantity,
-          },
-          manager,
-        );
-        stockChanges.push({
-          locationId,
-          itemId: line.itemId,
-          previousQuantity,
-        });
+            move.itemId,
+            manager,
+          );
+          await this.stockService.adjust(
+            {
+              locationId,
+              itemId: move.itemId,
+              quantityDelta: -move.quantity,
+            },
+            manager,
+          );
+          stockChanges.push({
+            locationId,
+            itemId: move.itemId,
+            previousQuantity,
+          });
+        }
       }
 
       if (this.paysViaBank(paymentMethod) && bankAccountId) {
@@ -629,7 +680,7 @@ export class SalesService {
 
       const sale = await saleRepo.findOne({
         where: { id },
-        relations: { lines: true, credit: true },
+        relations: { lines: { components: true }, credit: true },
       });
       if (!sale) throw new NotFoundException('Sale not found');
       if (sale.status === DocumentStatus.VOIDED) {
@@ -647,14 +698,16 @@ export class SalesService {
       }
 
       for (const line of sale.lines) {
-        await this.stockService.adjust(
-          {
-            locationId: sale.locationId,
-            itemId: line.itemId,
-            quantityDelta: stockQtyOf(line),
-          },
-          manager,
-        );
+        for (const move of this.kitSale.restoreMovesForLine(line)) {
+          await this.stockService.adjust(
+            {
+              locationId: sale.locationId,
+              itemId: move.itemId,
+              quantityDelta: move.quantity,
+            },
+            manager,
+          );
+        }
       }
 
       const paysViaBank =
@@ -721,6 +774,7 @@ export class SalesService {
         dto: SaleLineDto;
         stockQuantity: number;
         uomId: string | null;
+        explosion: Awaited<ReturnType<KitSaleService['explodeSaleLine']>>;
       }[] = [];
       for (const line of dto.lines) {
         const item = await loadItemForUom(manager, line.itemId);
@@ -734,19 +788,24 @@ export class SalesService {
           line.quantity,
           line.uomId,
         );
+        const explosion = await this.kitSale.explodeSaleLine(
+          line.itemId,
+          resolved.stockQuantity,
+          manager,
+        );
         resolvedLines.push({
           dto: line,
           stockQuantity: resolved.stockQuantity,
           uomId: resolved.uomId,
+          explosion,
         });
       }
 
       const stockWarnings = await this.stockService.checkAvailability(
         dto.locationId,
-        resolvedLines.map((l) => ({
-          itemId: l.dto.itemId,
-          quantity: l.stockQuantity,
-        })),
+        this.kitSale.mergeMoves(
+          resolvedLines.flatMap((l) => l.explosion.moves),
+        ),
         allowNegative,
         manager,
       );
@@ -754,13 +813,18 @@ export class SalesService {
       const saleLines: SaleLineDraft[] = [];
       let subtotal = 0;
 
-      for (const { dto: line, stockQuantity, uomId } of resolvedLines) {
-        const stock = await this.stockService.getStock(
+      for (const {
+        dto: line,
+        stockQuantity,
+        uomId,
+        explosion,
+      } of resolvedLines) {
+        const purchaseCost = await this.kitUnitPurchaseCost(
           dto.locationId,
-          line.itemId,
+          stockQuantity,
+          explosion.moves,
           manager,
         );
-        const purchaseCost = stock ? parseFloat(stock.purchasePrice) : 0;
         const lineTotal = line.quantity * line.unitPrice;
         subtotal += lineTotal;
         saleLines.push({
@@ -771,6 +835,14 @@ export class SalesService {
           unitPrice: line.unitPrice.toFixed(2),
           purchaseCost: purchaseCost.toFixed(2),
           lineTotal: lineTotal.toFixed(2),
+          components: explosion.isKit
+            ? explosion.moves.map((m) =>
+                Object.assign(new SaleLineComponent(), {
+                  componentItemId: m.itemId,
+                  stockQuantity: m.quantity.toFixed(3),
+                }),
+              )
+            : undefined,
         });
       }
 
@@ -806,25 +878,27 @@ export class SalesService {
         }),
       );
 
-      for (const { dto: line, stockQuantity } of resolvedLines) {
-        const previousQuantity = await this.stockService.getQuantity(
-          dto.locationId,
-          line.itemId,
-          manager,
-        );
-        await this.stockService.adjust(
-          {
+      for (const { explosion } of resolvedLines) {
+        for (const move of explosion.moves) {
+          const previousQuantity = await this.stockService.getQuantity(
+            dto.locationId,
+            move.itemId,
+            manager,
+          );
+          await this.stockService.adjust(
+            {
+              locationId: dto.locationId,
+              itemId: move.itemId,
+              quantityDelta: -move.quantity,
+            },
+            manager,
+          );
+          stockChanges.push({
             locationId: dto.locationId,
-            itemId: line.itemId,
-            quantityDelta: -stockQuantity,
-          },
-          manager,
-        );
-        stockChanges.push({
-          locationId: dto.locationId,
-          itemId: line.itemId,
-          previousQuantity,
-        });
+            itemId: move.itemId,
+            previousQuantity,
+          });
+        }
       }
 
       if (paysViaBank && dto.bankAccountId) {

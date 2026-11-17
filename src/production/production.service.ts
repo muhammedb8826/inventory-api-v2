@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
-import { ProductionOrderStatus } from '../common/enums';
+import { BomType, ProductionOrderStatus } from '../common/enums';
 import {
   applyDateRangeToQb,
   applyIlikeSearch,
@@ -102,6 +102,11 @@ export class ProductionService {
     });
     if (!bom) throw new BadRequestException('BOM not found');
     if (!bom.isActive) throw new BadRequestException('BOM is inactive');
+    if (bom.bomType === BomType.KIT) {
+      throw new BadRequestException(
+        'Kit BoMs cannot be produced. Use a Manufacture BoM, or sell the kit without production.',
+      );
+    }
     if (!bom.lines?.length) {
       throw new BadRequestException('BOM has no component lines');
     }

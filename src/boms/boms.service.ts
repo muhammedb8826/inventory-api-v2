@@ -136,6 +136,9 @@ export class BomsService {
     } else if (query.isActive === 'false') {
       qb.andWhere('bom.is_active = false');
     }
+    if (query.bomType) {
+      qb.andWhere('bom.bom_type = :bomType', { bomType: query.bomType });
+    }
     applyIlikeSearch(qb, query.search, [
       'bom.name',
       'bom.version',
