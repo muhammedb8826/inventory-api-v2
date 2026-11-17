@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  IsArray,
   IsEnum,
   IsNumber,
   IsOptional,
@@ -7,8 +8,10 @@ import {
   IsUUID,
   Min,
   ValidateIf,
+  ValidateNested,
 } from 'class-validator';
 import { ItemType } from '../../common/enums';
+import { VariantAttributeDto } from './variant-attribute.dto';
 
 export class CreateInventoryDto {
   @IsOptional()
@@ -63,6 +66,22 @@ export class CreateInventoryDto {
   @IsNumber()
   @Min(0)
   reorderPoint?: number;
+
+  /** Selected product attribute value IDs (one per attribute) — simple item. */
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  attributeValueIds?: string[];
+
+  /**
+   * Odoo-style variants: multi-select values per attribute.
+   * When combinations ≥ 2, creates a template + one stockable variant each.
+   */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => VariantAttributeDto)
+  variantAttributes?: VariantAttributeDto[];
 }
 
 export class UpdateInventoryDto {
@@ -118,4 +137,10 @@ export class UpdateInventoryDto {
   @IsNumber()
   @Min(0)
   reorderPoint?: number | null;
+
+  /** Replace item attribute values. Omit to leave unchanged; `[]` clears. */
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  attributeValueIds?: string[];
 }

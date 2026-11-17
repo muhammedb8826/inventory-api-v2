@@ -33,6 +33,7 @@ export { Uom } from './uom.entity';
 export { ItemUom } from './item-uom.entity';
 export { ProductAttribute } from './product-attribute.entity';
 export { ProductAttributeValue } from './product-attribute-value.entity';
+export { ItemAttributeValue } from './item-attribute-value.entity';
 
 import { Permission } from './permission.entity';
 import { Role } from './role.entity';
@@ -69,6 +70,7 @@ import { Uom } from './uom.entity';
 import { ItemUom } from './item-uom.entity';
 import { ProductAttribute } from './product-attribute.entity';
 import { ProductAttributeValue } from './product-attribute-value.entity';
+import { ItemAttributeValue } from './item-attribute-value.entity';
 
 export const entities = [
   Permission,
@@ -106,4 +108,5 @@ export const entities = [
   ItemUom,
   ProductAttribute,
   ProductAttributeValue,
+  ItemAttributeValue,
 ];

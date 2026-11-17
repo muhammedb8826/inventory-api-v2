@@ -11,7 +11,7 @@ import { join } from 'path';
 import { randomUUID } from 'crypto';
 import JSZip from 'jszip';
 import * as XLSX from 'xlsx';
-import { DataSource, Not, Repository } from 'typeorm';
+import { DataSource, In, Not, Repository } from 'typeorm';
 import {
   ItemType,
   StockAdjustmentDirection,
@@ -29,7 +29,9 @@ import {
   sumFilteredQueryBuilder,
 } from '../common/utils/query.util';
 import { Item } from '../database/entities/item.entity';
+import { ItemAttributeValue } from '../database/entities/item-attribute-value.entity';
 import { Location } from '../database/entities/location.entity';
+import { ProductAttributeValue } from '../database/entities/product-attribute-value.entity';
 import { StockAdjustment } from '../database/entities/stock-adjustment.entity';
 import { StockLevel } from '../database/entities/stock-level.entity';
 import { StockService } from './stock.service';
@@ -62,6 +64,33 @@ const ITEM_IMAGE_EXT_MIME: Record<string, string> = {
 };
 
 const ITEM_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+const MAX_VARIANT_COMBINATIONS = 100;
+
+function cartesianProduct<T>(arrays: T[][]): T[][] {
+  if (arrays.length === 0) return [[]];
+  return arrays.reduce<T[][]>(
+    (acc, curr) => acc.flatMap((prefix) => curr.map((item) => [...prefix, item])),
+    [[]],
+  );
+}
+
+function buildVariantKey(
+  pairs: { attributeId: string; valueId: string }[],
+): string {
+  return pairs
+    .slice()
+    .sort((a, b) => a.attributeId.localeCompare(b.attributeId))
+    .map((p) => `${p.attributeId}:${p.valueId}`)
+    .join('|')
+    .slice(0, 200);
+}
+
+function skuToken(code: string): string {
+  return code
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
 
 @Injectable()
 export class InventoryService {
@@ -76,6 +105,10 @@ export class InventoryService {
     private readonly locationRepo: Repository<Location>,
     @InjectRepository(StockAdjustment)
     private readonly adjustmentRepo: Repository<StockAdjustment>,
+    @InjectRepository(ItemAttributeValue)
+    private readonly itemAttributeValueRepo: Repository<ItemAttributeValue>,
+    @InjectRepository(ProductAttributeValue)
+    private readonly attributeValueRepo: Repository<ProductAttributeValue>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly stockService: StockService,
@@ -148,11 +181,24 @@ export class InventoryService {
     };
   }
 
+  private flattenItemAttributeValues(item: {
+    itemAttributeValues?: ItemAttributeValue[] | null;
+    attributeValues?: ProductAttributeValue[];
+  }) {
+    const links = item.itemAttributeValues ?? [];
+    if (!links.length && item.attributeValues) return;
+    item.attributeValues = links
+      .map((link) => link.attributeValue)
+      .filter((value): value is ProductAttributeValue => Boolean(value));
+  }
+
   private attachItemImageUrl<
     T extends {
       item?: {
         imagePath?: string | null;
         imageUrl?: string | null;
+        itemAttributeValues?: ItemAttributeValue[] | null;
+        attributeValues?: ProductAttributeValue[];
       } | null;
     },
   >(row: T, requestBaseUrl?: string): T {
@@ -161,6 +207,7 @@ export class InventoryService {
         row.item.imagePath ?? null,
         this.mediaBase(requestBaseUrl),
       );
+      this.flattenItemAttributeValues(row.item);
     }
     return row;
   }
@@ -170,10 +217,119 @@ export class InventoryService {
       item?: {
         imagePath?: string | null;
         imageUrl?: string | null;
+        itemAttributeValues?: ItemAttributeValue[] | null;
+        attributeValues?: ProductAttributeValue[];
       } | null;
     },
   >(rows: T[], requestBaseUrl?: string): T[] {
     return rows.map((row) => this.attachItemImageUrl(row, requestBaseUrl));
+  }
+
+  /**
+   * Replace item attribute assignments.
+   * Variants/simple items: at most one value per attribute.
+   * Templates: multiple values per attribute allowed.
+   */
+  private async syncItemAttributeValues(
+    itemId: string,
+    attributeValueIds: string[],
+    options?: { allowMultiplePerAttribute?: boolean },
+  ) {
+    const uniqueIds = [...new Set(attributeValueIds.filter(Boolean))];
+    if (uniqueIds.length === 0) {
+      await this.itemAttributeValueRepo.delete({ itemId });
+      return;
+    }
+
+    const values = await this.attributeValueRepo.find({
+      where: { id: In(uniqueIds), isActive: true },
+      relations: { attribute: true },
+    });
+    if (values.length !== uniqueIds.length) {
+      throw new BadRequestException(
+        'One or more attribute values are invalid or inactive',
+      );
+    }
+
+    if (!options?.allowMultiplePerAttribute) {
+      const seenAttributeIds = new Set<string>();
+      for (const value of values) {
+        if (seenAttributeIds.has(value.attributeId)) {
+          throw new BadRequestException(
+            `Select only one value for attribute "${value.attribute?.name ?? value.attributeId}"`,
+          );
+        }
+        seenAttributeIds.add(value.attributeId);
+      }
+    }
+
+    await this.itemAttributeValueRepo.delete({ itemId });
+    await this.itemAttributeValueRepo.save(
+      values.map((value) =>
+        this.itemAttributeValueRepo.create({
+          itemId,
+          attributeValueId: value.id,
+        }),
+      ),
+    );
+  }
+
+  private async resolveVariantCombinations(
+    variantAttributes: { attributeId: string; valueIds: string[] }[],
+  ) {
+    if (!variantAttributes.length) {
+      return { allValueIds: [] as string[], combinations: [] as ProductAttributeValue[][] };
+    }
+
+    const allValueIds = [
+      ...new Set(variantAttributes.flatMap((row) => row.valueIds)),
+    ];
+    const values = await this.attributeValueRepo.find({
+      where: { id: In(allValueIds), isActive: true },
+      relations: { attribute: true },
+    });
+    if (values.length !== allValueIds.length) {
+      throw new BadRequestException(
+        'One or more attribute values are invalid or inactive',
+      );
+    }
+    const byId = new Map(values.map((v) => [v.id, v]));
+
+    const orderedAttrs = variantAttributes
+      .map((row) => {
+        const uniqueValueIds = [...new Set(row.valueIds)];
+        const attrValues = uniqueValueIds.map((id) => {
+          const value = byId.get(id);
+          if (!value) {
+            throw new BadRequestException(`Unknown attribute value ${id}`);
+          }
+          if (value.attributeId !== row.attributeId) {
+            throw new BadRequestException(
+              `Value "${value.name}" does not belong to the selected attribute`,
+            );
+          }
+          return value;
+        });
+        attrValues.sort(
+          (a, b) =>
+            (a.sequence ?? 0) - (b.sequence ?? 0) ||
+            a.name.localeCompare(b.name),
+        );
+        return {
+          attributeId: row.attributeId,
+          sequence: attrValues[0]?.attribute?.sequence ?? 0,
+          values: attrValues,
+        };
+      })
+      .sort(
+        (a, b) =>
+          a.sequence - b.sequence || a.attributeId.localeCompare(b.attributeId),
+      );
+
+    const combinations = cartesianProduct(
+      orderedAttrs.map((a) => a.values),
+    );
+    return { allValueIds, combinations };
   }
 
   async findAll(query: InventoryListQueryDto, requestBaseUrl?: string) {
@@ -198,6 +354,13 @@ export class InventoryService {
           .leftJoinAndSelect('stockUom.category', 'stockUomCategory')
           .leftJoinAndSelect('item.salesUom', 'salesUom')
           .leftJoinAndSelect('item.purchaseUom', 'purchaseUom')
+          .leftJoinAndSelect('item.itemAttributeValues', 'itemAttributeValues')
+          .leftJoinAndSelect(
+            'itemAttributeValues.attributeValue',
+            'attributeValue',
+          )
+          .leftJoinAndSelect('attributeValue.attribute', 'attribute')
+          .leftJoinAndSelect('item.parentItem', 'parentItem')
           .leftJoinAndSelect('stock.location', 'location')
           .orderBy('stock.updated_at', 'DESC'),
         query.page,
@@ -254,6 +417,10 @@ export class InventoryService {
           salesUom: true,
           purchaseUom: true,
           itemUoms: { uom: true },
+          parentItem: true,
+          itemAttributeValues: {
+            attributeValue: { attribute: true },
+          },
         },
         location: true,
       },
@@ -262,36 +429,194 @@ export class InventoryService {
     return this.attachItemImageUrl(stock, requestBaseUrl);
   }
 
+  private async prepareNewItemFields(dto: CreateInventoryDto): Promise<Item> {
+    const item = this.itemRepo.create({
+      sku: dto.sku?.trim() ? dto.sku.trim() : null,
+      description: dto.description.trim(),
+      unit: dto.unit ?? null,
+      itemType: dto.itemType,
+      isTemplate: false,
+      parentItemId: null,
+      variantKey: null,
+    });
+    await this.applyItemUoms(item, {
+      unit: dto.unit,
+      stockUomId: dto.stockUomId,
+      salesUomId: dto.salesUomId,
+      purchaseUomId: dto.purchaseUomId,
+      uomWidth: dto.uomWidth,
+    });
+    if (!item.stockUomId) {
+      const pcs = await this.uomService.findByCode('PCS');
+      if (pcs) {
+        item.stockUomId = pcs.id;
+        item.salesUomId = item.salesUomId ?? pcs.id;
+        item.purchaseUomId = item.purchaseUomId ?? pcs.id;
+        item.unit = pcs.symbol;
+      }
+    }
+    return item;
+  }
+
+  private async createWithVariants(
+    dto: CreateInventoryDto,
+    combinations: ProductAttributeValue[][],
+    allValueIds: string[],
+    requestBaseUrl?: string,
+  ) {
+    if (combinations.length > MAX_VARIANT_COMBINATIONS) {
+      throw new BadRequestException(
+        `Too many variants (${combinations.length}). Maximum is ${MAX_VARIANT_COMBINATIONS}.`,
+      );
+    }
+
+    const baseSku = dto.sku?.trim() || null;
+    if (baseSku) {
+      const existingSku = await this.itemRepo.findOne({
+        where: { sku: baseSku },
+      });
+      if (existingSku) {
+        throw new ConflictException('SKU already in use by another item');
+      }
+    }
+
+    const stockIds = await this.dataSource.transaction(async (manager) => {
+      const itemRepo = manager.getRepository(Item);
+      const stockRepo = manager.getRepository(StockLevel);
+      const linkRepo = manager.getRepository(ItemAttributeValue);
+
+      const template = await this.prepareNewItemFields(dto);
+      template.isTemplate = true;
+      template.sku = baseSku;
+      const savedTemplate = await itemRepo.save(template);
+
+      await linkRepo.delete({ itemId: savedTemplate.id });
+      await linkRepo.save(
+        allValueIds.map((attributeValueId) =>
+          linkRepo.create({
+            itemId: savedTemplate.id,
+            attributeValueId,
+          }),
+        ),
+      );
+
+      const createdStockIds: string[] = [];
+      for (const combo of combinations) {
+        const labels = combo.map((v) => v.name);
+        const codes = combo.map((v) => skuToken(v.code || v.name));
+        const key = buildVariantKey(
+          combo.map((v) => ({
+            attributeId: v.attributeId,
+            valueId: v.id,
+          })),
+        );
+        const variantSku = baseSku
+          ? `${skuToken(baseSku)}-${codes.join('-')}`.slice(0, 80)
+          : null;
+
+        if (variantSku) {
+          const clash = await itemRepo.findOne({ where: { sku: variantSku } });
+          if (clash) {
+            throw new ConflictException(
+              `Generated SKU already exists: ${variantSku}`,
+            );
+          }
+        }
+
+        const variant = itemRepo.create({
+          sku: variantSku,
+          description: `${dto.description.trim()} (${labels.join(', ')})`,
+          unit: savedTemplate.unit,
+          stockUomId: savedTemplate.stockUomId,
+          salesUomId: savedTemplate.salesUomId,
+          purchaseUomId: savedTemplate.purchaseUomId,
+          uomWidth: savedTemplate.uomWidth,
+          itemType: savedTemplate.itemType,
+          imagePath: savedTemplate.imagePath,
+          isActive: true,
+          isTemplate: false,
+          parentItemId: savedTemplate.id,
+          variantKey: key,
+        });
+        const savedVariant = await itemRepo.save(variant);
+
+        await linkRepo.save(
+          combo.map((value) =>
+            linkRepo.create({
+              itemId: savedVariant.id,
+              attributeValueId: value.id,
+            }),
+          ),
+        );
+
+        const stock = await stockRepo.save(
+          stockRepo.create({
+            locationId: dto.locationId,
+            itemId: savedVariant.id,
+            quantity: dto.quantity.toFixed(3),
+            purchasePrice: dto.purchasePrice.toFixed(2),
+            reorderPoint:
+              dto.reorderPoint !== undefined
+                ? dto.reorderPoint.toFixed(3)
+                : null,
+          }),
+        );
+        createdStockIds.push(stock.id);
+      }
+
+      return { templateId: savedTemplate.id, stockIds: createdStockIds };
+    });
+
+    for (const stockId of stockIds.stockIds) {
+      await this.lowStockService.evaluateInitialStock(stockId);
+    }
+
+    const template = await this.itemRepo.findOne({
+      where: { id: stockIds.templateId },
+      relations: {
+        itemAttributeValues: { attributeValue: { attribute: true } },
+      },
+    });
+    if (template) this.flattenItemAttributeValues(template);
+
+    const variants: Awaited<ReturnType<InventoryService['findOne']>>[] = [];
+    for (const stockId of stockIds.stockIds) {
+      variants.push(await this.findOne(stockId, requestBaseUrl));
+    }
+
+    return { template, variants };
+  }
+
   async create(dto: CreateInventoryDto, requestBaseUrl?: string) {
     await this.ensureLocation(dto.locationId);
+
+    if (dto.variantAttributes?.length) {
+      const { allValueIds, combinations } =
+        await this.resolveVariantCombinations(dto.variantAttributes);
+      if (combinations.length >= 2) {
+        return this.createWithVariants(
+          dto,
+          combinations,
+          allValueIds,
+          requestBaseUrl,
+        );
+      }
+      // 0–1 combination → simple item with flattened attributeValueIds
+      if (combinations.length === 1) {
+        dto.attributeValueIds = combinations[0].map((v) => v.id);
+      }
+    }
+
     let item = dto.sku
       ? await this.itemRepo.findOne({ where: { sku: dto.sku } })
       : null;
     if (!item) {
-      item = this.itemRepo.create({
-        sku: dto.sku ?? null,
-        description: dto.description,
-        unit: dto.unit ?? null,
-        itemType: dto.itemType,
-      });
-      await this.applyItemUoms(item, {
-        unit: dto.unit,
-        stockUomId: dto.stockUomId,
-        salesUomId: dto.salesUomId,
-        purchaseUomId: dto.purchaseUomId,
-        uomWidth: dto.uomWidth,
-      });
-      // Default stock UOM to Pcs when nothing provided
-      if (!item.stockUomId) {
-        const pcs = await this.uomService.findByCode('PCS');
-        if (pcs) {
-          item.stockUomId = pcs.id;
-          item.salesUomId = item.salesUomId ?? pcs.id;
-          item.purchaseUomId = item.purchaseUomId ?? pcs.id;
-          item.unit = pcs.symbol;
-        }
-      }
+      item = await this.prepareNewItemFields(dto);
       item = await this.itemRepo.save(item);
+    }
+
+    if (dto.attributeValueIds !== undefined) {
+      await this.syncItemAttributeValues(item.id, dto.attributeValueIds);
     }
 
     const existing = await this.stockService.getStock(dto.locationId, item.id);
@@ -370,6 +695,10 @@ export class InventoryService {
         uomWidth: dto.uomWidth,
       });
       await this.itemRepo.save(stock.item);
+    }
+
+    if (dto.attributeValueIds !== undefined) {
+      await this.syncItemAttributeValues(stock.itemId, dto.attributeValueIds);
     }
 
     if (dto.purchasePrice !== undefined) {
@@ -639,26 +968,30 @@ export class InventoryService {
               ? reorderPoint
               : undefined,
         });
+        const stockId =
+          saved && typeof saved === 'object' && 'variants' in saved
+            ? saved.variants[0]?.id
+            : (saved as { id: string }).id;
 
         let status = 'imported';
         const embedded = embeddedByExcelRow.get(excelRow);
         if (embedded) {
           try {
-            await this.uploadItemImage(saved.id, embedded);
+            await this.uploadItemImage(stockId, embedded);
             status = 'imported+image';
           } catch (imgErr) {
             status = `imported (image failed: ${exceptionMessage(imgErr)})`;
           }
         } else if (imageUrlRaw) {
           try {
-            await this.attachImageFromUrl(saved.id, imageUrlRaw);
+            await this.attachImageFromUrl(stockId, imageUrlRaw);
             status = 'imported+image';
           } catch (imgErr) {
             status = `imported (image failed: ${exceptionMessage(imgErr)})`;
           }
         }
 
-        results.push({ row: excelRow, status, id: saved.id });
+        results.push({ row: excelRow, status, id: stockId });
       } catch (e) {
         results.push({
           row: excelRow,

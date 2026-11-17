@@ -12,6 +12,8 @@ import { StockLevel } from './stock-level.entity';
 import { UuidBaseEntity } from './uuid-base.entity';
 import { Uom } from './uom.entity';
 import { ItemUom } from './item-uom.entity';
+import { ItemAttributeValue } from './item-attribute-value.entity';
+import { ProductAttributeValue } from './product-attribute-value.entity';
 
 @Entity('items')
 export class Item extends UuidBaseEntity {
@@ -71,6 +73,31 @@ export class Item extends UuidBaseEntity {
   @Column({ name: 'is_active', default: true })
   isActive: boolean;
 
+  /** Product template that owns attribute value sets (no stock). */
+  @Column({ name: 'is_template', default: false })
+  isTemplate: boolean;
+
+  /** Variant → template. Null for standalone items and templates. */
+  @Column({ name: 'parent_item_id', type: 'uuid', nullable: true })
+  parentItemId: string | null;
+
+  /**
+   * Stable key for a variant combination:
+   * sorted `attributeId:valueId` pairs joined by `|`.
+   */
+  @Column({ name: 'variant_key', type: 'varchar', length: 200, nullable: true })
+  variantKey: string | null;
+
+  @ManyToOne(() => Item, (item) => item.variants, {
+    nullable: true,
+    onDelete: 'CASCADE',
+  })
+  @JoinColumn({ name: 'parent_item_id' })
+  parentItem: Item | null;
+
+  @OneToMany(() => Item, (item) => item.parentItem)
+  variants: Item[];
+
   @ManyToOne(() => Uom, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'stock_uom_id' })
   stockUom: Uom | null;
@@ -85,6 +112,12 @@ export class Item extends UuidBaseEntity {
 
   @OneToMany(() => ItemUom, (iu) => iu.item)
   itemUoms: ItemUom[];
+
+  @OneToMany(() => ItemAttributeValue, (iav) => iav.item)
+  itemAttributeValues: ItemAttributeValue[];
+
+  /** Flattened selected values — set in inventory service, not a DB column. */
+  attributeValues?: ProductAttributeValue[];
 
   @OneToMany(() => StockLevel, (stock) => stock.item)
   stockLevels: StockLevel[];
