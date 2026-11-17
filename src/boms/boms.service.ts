@@ -42,6 +42,7 @@ export class BomsService {
           stockUom: { category: true },
           salesUom: { category: true },
           purchaseUom: { category: true },
+          dimensionUom: { category: true },
           itemUoms: true,
         },
       });
@@ -61,7 +62,8 @@ export class BomsService {
           width: line.width,
           height: line.height,
           pieces: line.pieces,
-          dimUomId: line.dimUomId,
+          // Per-line Cut in, else item “Cut dimensions in”, else meters.
+          dimUomId: line.dimUomId ?? item.dimensionUomId,
         },
       );
       const scrap = line.scrapPercent ?? 0;
@@ -105,6 +107,7 @@ export class BomsService {
         where: { isActive: true, isTemplate: false },
         relations: {
           stockUom: { category: true },
+          dimensionUom: true,
           parentItem: true,
         },
         order: { description: 'ASC' },
@@ -180,7 +183,10 @@ export class BomsService {
           itemAttributeValues: { attributeValue: { attribute: true } },
         },
         lines: {
-          componentItem: { stockUom: { category: true } },
+          componentItem: {
+            stockUom: { category: true },
+            dimensionUom: true,
+          },
           uom: true,
           dimUom: true,
         },

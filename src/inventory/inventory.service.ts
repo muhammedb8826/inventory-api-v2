@@ -127,6 +127,7 @@ export class InventoryService {
       purchaseUomId?: string | null;
       uomWidth?: number | null;
       dimensionPriceMode?: import('../common/enums').DimensionPriceMode | null;
+      dimensionUomId?: string | null;
     },
   ) {
     if (fields.stockUomId !== undefined) {
@@ -167,6 +168,28 @@ export class InventoryService {
     }
     if (fields.dimensionPriceMode !== undefined) {
       item.dimensionPriceMode = fields.dimensionPriceMode;
+    }
+    if (fields.dimensionUomId !== undefined) {
+      if (fields.dimensionUomId) {
+        const uom = await this.uomService.findUom(fields.dimensionUomId);
+        if (uom.category?.code !== 'LENGTH') {
+          throw new BadRequestException(
+            'Cut dimension UOM must be a Length unit (m, cm, mm)',
+          );
+        }
+        item.dimensionUomId = uom.id;
+        item.dimensionUom = uom;
+      } else {
+        // Only clear when cut pricing is off; otherwise ensureDimensionUom fills default.
+        const mode =
+          fields.dimensionPriceMode !== undefined
+            ? fields.dimensionPriceMode
+            : item.dimensionPriceMode;
+        if (!mode) {
+          item.dimensionUomId = null;
+          item.dimensionUom = null;
+        }
+      }
     }
     if (fields.unit !== undefined && fields.stockUomId === undefined) {
       item.unit =
@@ -367,6 +390,7 @@ export class InventoryService {
           .leftJoinAndSelect('stockUom.category', 'stockUomCategory')
           .leftJoinAndSelect('item.salesUom', 'salesUom')
           .leftJoinAndSelect('item.purchaseUom', 'purchaseUom')
+          .leftJoinAndSelect('item.dimensionUom', 'dimensionUom')
           .leftJoinAndSelect('item.itemAttributeValues', 'itemAttributeValues')
           .leftJoinAndSelect(
             'itemAttributeValues.attributeValue',
@@ -408,9 +432,9 @@ export class InventoryService {
 
   async findLowStock(
     query: {
-      locationId?: string;
-      page?: number;
-      limit?: number;
+    locationId?: string;
+    page?: number;
+    limit?: number;
     },
     requestBaseUrl?: string,
   ) {
@@ -429,6 +453,7 @@ export class InventoryService {
           stockUom: { category: true },
           salesUom: true,
           purchaseUom: true,
+          dimensionUom: { category: true },
           itemUoms: { uom: true },
           parentItem: true,
           itemAttributeValues: {
@@ -526,6 +551,31 @@ export class InventoryService {
     }
   }
 
+  /** Ensure cut items have a Length dimension UOM (default meters). */
+  private async ensureDimensionUom(item: Item) {
+    if (!item.dimensionPriceMode) return;
+    if (item.dimensionUomId) {
+      const uom = await this.uomService.findUom(item.dimensionUomId);
+      if (uom.category?.code !== 'LENGTH') {
+        throw new BadRequestException(
+          'Cut dimension UOM must be a Length unit (m, cm, mm)',
+        );
+      }
+      item.dimensionUom = uom;
+      return;
+    }
+    const meters =
+      (await this.uomService.findByCode('M')) ??
+      (await this.uomService.findByCode('m'));
+    if (!meters || meters.category?.code !== 'LENGTH') {
+      throw new BadRequestException(
+        'Cut pricing needs a Length UOM. Seed meter (m) or set Cut dimensions in on the item.',
+      );
+    }
+    item.dimensionUomId = meters.id;
+    item.dimensionUom = meters;
+  }
+
   private async prepareNewItemFields(dto: CreateInventoryDto): Promise<Item> {
     const item = this.itemRepo.create({
       sku: dto.sku?.trim() ? dto.sku.trim() : null,
@@ -543,6 +593,7 @@ export class InventoryService {
       purchaseUomId: dto.purchaseUomId,
       uomWidth: dto.uomWidth,
       dimensionPriceMode: dto.dimensionPriceMode,
+      dimensionUomId: dto.dimensionUomId,
     });
     if (!item.stockUomId) {
       const pcs = await this.uomService.findByCode('PCS');
@@ -567,6 +618,7 @@ export class InventoryService {
       item.stockUomId,
       item.dimensionPriceMode,
     );
+    await this.ensureDimensionUom(item);
     return item;
   }
 
@@ -644,6 +696,7 @@ export class InventoryService {
           purchaseUomId: savedTemplate.purchaseUomId,
           uomWidth: savedTemplate.uomWidth,
           dimensionPriceMode: savedTemplate.dimensionPriceMode,
+          dimensionUomId: savedTemplate.dimensionUomId,
           itemType: savedTemplate.itemType,
           imagePath: savedTemplate.imagePath,
           isActive: true,
@@ -775,7 +828,8 @@ export class InventoryService {
       dto.salesUomId !== undefined ||
       dto.purchaseUomId !== undefined ||
       dto.uomWidth !== undefined ||
-      dto.dimensionPriceMode !== undefined;
+      dto.dimensionPriceMode !== undefined ||
+      dto.dimensionUomId !== undefined;
 
     if (itemChanged) {
       if (dto.description !== undefined) {
@@ -827,11 +881,13 @@ export class InventoryService {
         purchaseUomId: dto.purchaseUomId,
         uomWidth: dto.uomWidth,
         dimensionPriceMode: dto.dimensionPriceMode,
+        dimensionUomId: dto.dimensionUomId,
       });
       await this.assertDimensionPricingRequiresAreaStock(
         stock.item.stockUomId,
         stock.item.dimensionPriceMode,
       );
+      await this.ensureDimensionUom(stock.item);
       await this.itemRepo.save(stock.item);
     }
 
@@ -1086,7 +1142,7 @@ export class InventoryService {
         .toUpperCase();
       const itemType = Object.values(ItemType).includes(itemTypeRaw as ItemType)
         ? (itemTypeRaw as ItemType)
-        : undefined;
+          : undefined;
 
       if (!description || Number.isNaN(quantity)) {
         results.push({ row: excelRow, status: 'skipped: invalid row' });

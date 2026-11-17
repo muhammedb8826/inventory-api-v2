@@ -47,6 +47,7 @@ export async function loadItemForUom(
       stockUom: { category: true },
       salesUom: { category: true },
       purchaseUom: { category: true },
+      dimensionUom: { category: true },
       itemUoms: true,
     },
   });

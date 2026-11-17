@@ -63,6 +63,12 @@ export class CreateInventoryDto {
   @IsEnum(DimensionPriceMode)
   dimensionPriceMode?: DimensionPriceMode | null;
 
+  /** Length UOM for W×H cuts (m/cm/mm). Defaults to meters when cut pricing is on. */
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsUUID()
+  dimensionUomId?: string | null;
+
   @IsOptional()
   @IsEnum(ItemType)
   itemType?: ItemType;
@@ -131,6 +137,11 @@ export class UpdateInventoryDto {
   @ValidateIf((_, value) => value !== null)
   @IsEnum(DimensionPriceMode)
   dimensionPriceMode?: DimensionPriceMode | null;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsUUID()
+  dimensionUomId?: string | null;
 
   @IsOptional()
   @IsEnum(ItemType)

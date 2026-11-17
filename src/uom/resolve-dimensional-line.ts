@@ -87,11 +87,15 @@ export async function resolveDimensionalLine(
       );
     }
 
+    // Prefer per-line Cut in, else item “Cut dimensions in”, else meters (LENGTH base).
+    // null length UOM means values are already in meters — that is why 10×10×2 became 200 m²
+    // when Banner had dimensionUomId unset (user expected cm).
+    const lengthUomId = dims?.dimUomId ?? item.dimensionUomId ?? null;
     const [wLen, hLen] = await Promise.all([
-      conversion.toLengthBase(width, dims?.dimUomId),
-      conversion.toLengthBase(height, dims?.dimUomId),
+      conversion.toLengthBase(width, lengthUomId),
+      conversion.toLengthBase(height, lengthUomId),
     ]);
-    const dimUomId = wLen.uom?.id ?? dims?.dimUomId ?? null;
+    const dimUomId = wLen.uom?.id ?? lengthUomId;
 
     // Area in category base (m² when LENGTH base is meters).
     const areaBase = wLen.base * hLen.base * pieces;

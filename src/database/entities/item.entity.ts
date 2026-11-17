@@ -67,6 +67,13 @@ export class Item extends UuidBaseEntity {
   })
   dimensionPriceMode: DimensionPriceMode | null;
 
+  /**
+   * Length UOM for W×H cut entry (m/cm/mm). Null = meters (LENGTH base).
+   * Stock remains Area (m²); this only interprets cut dimensions.
+   */
+  @Column({ name: 'dimension_uom_id', type: 'uuid', nullable: true })
+  dimensionUomId: string | null;
+
   @Column({
     name: 'item_type',
     type: 'enum',
@@ -122,6 +129,10 @@ export class Item extends UuidBaseEntity {
   @ManyToOne(() => Uom, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'purchase_uom_id' })
   purchaseUom: Uom | null;
+
+  @ManyToOne(() => Uom, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'dimension_uom_id' })
+  dimensionUom: Uom | null;
 
   @OneToMany(() => ItemUom, (iu) => iu.item)
   itemUoms: ItemUom[];
