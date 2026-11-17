@@ -283,6 +283,7 @@ export class InquiriesService {
     const row = await this.repo.save(
       this.repo.create({
         contactName: dto.contactName.trim(),
+        companyName: dto.companyName?.trim() || null,
         phone: dto.phone?.trim() || null,
         email: dto.email?.trim() || null,
         subject: dto.subject.trim(),
@@ -298,6 +299,7 @@ export class InquiriesService {
         createdById: null,
         internalNotes: null,
         followUpAt: null,
+        requiredByAt: null,
         convertedSaleId: null,
       }),
     );
@@ -326,6 +328,7 @@ export class InquiriesService {
 
     const draft = this.repo.create({
       contactName: dto.contactName.trim(),
+      companyName: dto.companyName?.trim() || null,
       phone: dto.phone?.trim() || null,
       email: dto.email?.trim() || null,
       subject: dto.subject.trim(),
@@ -338,6 +341,7 @@ export class InquiriesService {
       acceptedAt: null,
       internalNotes: dto.internalNotes?.trim() || null,
       followUpAt: dto.followUpAt ? new Date(dto.followUpAt) : null,
+      requiredByAt: dto.requiredByAt ? new Date(dto.requiredByAt) : null,
       source: InquirySource.INTERNAL,
       status: InquiryStatus.NEW,
       createdById,
@@ -384,6 +388,9 @@ export class InquiriesService {
     });
 
     if (dto.contactName !== undefined) row.contactName = dto.contactName.trim();
+    if (dto.companyName !== undefined) {
+      row.companyName = dto.companyName?.trim() || null;
+    }
     if (dto.phone !== undefined) row.phone = dto.phone?.trim() || null;
     if (dto.email !== undefined) row.email = dto.email?.trim() || null;
     if (dto.subject !== undefined) row.subject = dto.subject.trim();
@@ -404,6 +411,9 @@ export class InquiriesService {
     }
     if (dto.followUpAt !== undefined) {
       row.followUpAt = dto.followUpAt ? new Date(dto.followUpAt) : null;
+    }
+    if (dto.requiredByAt !== undefined) {
+      row.requiredByAt = dto.requiredByAt ? new Date(dto.requiredByAt) : null;
     }
     if (dto.convertedSaleId !== undefined) {
       row.convertedSaleId = dto.convertedSaleId;

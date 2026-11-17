@@ -27,6 +27,10 @@ export class CustomerInquiry extends UuidBaseEntity {
   @Column({ name: 'contact_name', length: 150 })
   contactName: string;
 
+  /** Organization / company (ERP-style inquiry header). */
+  @Column({ name: 'company_name', type: 'varchar', length: 150, nullable: true })
+  companyName: string | null;
+
   @Column({ type: 'varchar', length: 50, nullable: true })
   phone: string | null;
 
@@ -85,6 +89,10 @@ export class CustomerInquiry extends UuidBaseEntity {
 
   @Column({ name: 'follow_up_at', type: 'timestamptz', nullable: true })
   followUpAt: Date | null;
+
+  /** Customer-needed-by / expected decision date (distinct from follow-up reminder). */
+  @Column({ name: 'required_by_at', type: 'timestamptz', nullable: true })
+  requiredByAt: Date | null;
 
   @Column({ name: 'converted_sale_id', type: 'uuid', nullable: true })
   convertedSaleId: string | null;

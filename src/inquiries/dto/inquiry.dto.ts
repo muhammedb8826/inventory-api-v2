@@ -47,6 +47,11 @@ export class CreateInquiryBaseDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(150)
+  companyName?: string;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(50)
   phone?: string;
 
@@ -105,6 +110,10 @@ export class CreateInquiryDto extends CreateInquiryBaseDto {
   @IsOptional()
   @IsDateString()
   followUpAt?: string;
+
+  @IsOptional()
+  @IsDateString()
+  requiredByAt?: string;
 }
 
 export class UpdateInquiryDto {
@@ -113,6 +122,11 @@ export class UpdateInquiryDto {
   @MinLength(1)
   @MaxLength(150)
   contactName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
+  companyName?: string | null;
 
   @IsOptional()
   @IsString()
@@ -170,6 +184,10 @@ export class UpdateInquiryDto {
   @IsOptional()
   @IsDateString()
   followUpAt?: string | null;
+
+  @IsOptional()
+  @IsDateString()
+  requiredByAt?: string | null;
 
   @IsOptional()
   @IsUUID()
