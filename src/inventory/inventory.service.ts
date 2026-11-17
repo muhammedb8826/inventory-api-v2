@@ -134,24 +134,31 @@ export class InventoryService {
         const uom = await this.uomService.findUom(fields.stockUomId);
         item.stockUomId = uom.id;
         item.unit = uom.symbol;
+        // Clear loaded relation so TypeORM save() does not overwrite the new FK.
+        item.stockUom = uom;
       } else {
         item.stockUomId = null;
+        item.stockUom = null;
       }
     }
     if (fields.salesUomId !== undefined) {
       if (fields.salesUomId) {
-        await this.uomService.findUom(fields.salesUomId);
-        item.salesUomId = fields.salesUomId;
+        const uom = await this.uomService.findUom(fields.salesUomId);
+        item.salesUomId = uom.id;
+        item.salesUom = uom;
       } else {
         item.salesUomId = null;
+        item.salesUom = null;
       }
     }
     if (fields.purchaseUomId !== undefined) {
       if (fields.purchaseUomId) {
-        await this.uomService.findUom(fields.purchaseUomId);
-        item.purchaseUomId = fields.purchaseUomId;
+        const uom = await this.uomService.findUom(fields.purchaseUomId);
+        item.purchaseUomId = uom.id;
+        item.purchaseUom = uom;
       } else {
         item.purchaseUomId = null;
+        item.purchaseUom = null;
       }
     }
     if (fields.uomWidth !== undefined) {
