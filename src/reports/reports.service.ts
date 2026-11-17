@@ -307,14 +307,17 @@ export class ReportsService {
       .leftJoin('line.item', 'item')
       .select('item.id', 'itemId')
       .addSelect('item.description', 'description')
-      .addSelect('SUM(line.quantity::numeric)', 'quantitySold')
+      .addSelect(
+        'SUM(COALESCE(line.stock_quantity, line.quantity)::numeric)',
+        'quantitySold',
+      )
       .addSelect('SUM(line."lineTotal"::numeric)', 'revenue')
       .addSelect(
-        'SUM(line.quantity::numeric * line.purchase_cost::numeric)',
+        'SUM(COALESCE(line.stock_quantity, line.quantity)::numeric * line.purchase_cost::numeric)',
         'cost',
       )
       .addSelect(
-        'SUM(line."lineTotal"::numeric) - SUM(line.quantity::numeric * line.purchase_cost::numeric)',
+        'SUM(line."lineTotal"::numeric) - SUM(COALESCE(line.stock_quantity, line.quantity)::numeric * line.purchase_cost::numeric)',
         'profit',
       )
       .where('sale.status = :status', { status: DocumentStatus.ACTIVE })
@@ -365,7 +368,10 @@ export class ReportsService {
       .leftJoin('line.item', 'item')
       .select('item.id', 'itemId')
       .addSelect('item.description', 'description')
-      .addSelect('SUM(line.quantity::numeric)', 'quantityPurchased')
+      .addSelect(
+        'SUM(COALESCE(line.stock_quantity, line.quantity)::numeric)',
+        'quantityPurchased',
+      )
       .addSelect('SUM(line."lineTotal"::numeric)', 'total')
       .where('purchase.status = :status', { status: DocumentStatus.ACTIVE })
       .groupBy('item.id')

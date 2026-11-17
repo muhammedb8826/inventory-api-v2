@@ -43,7 +43,7 @@ import { loadItemForUom, resolveLineUom } from '../uom/resolve-line-uom';
 
 type SaleCommissionLineInput = Pick<
   SaleLine,
-  'quantity' | 'lineTotal' | 'purchaseCost' | 'unitPrice'
+  'quantity' | 'stockQuantity' | 'lineTotal' | 'purchaseCost' | 'unitPrice'
 >;
 
 type SaleLineDraft = Pick<
@@ -160,7 +160,10 @@ export class SalesService {
       relations: {
         customer: true,
         location: true,
-        lines: { item: true },
+        lines: {
+          item: { stockUom: true },
+          uom: true,
+        },
         credit: true,
         soldByUser: true,
       },
@@ -230,10 +233,10 @@ export class SalesService {
 
   private lineProfit(lines: SaleCommissionLineInput[]): number {
     return lines.reduce((total, line) => {
-      const qty = parseFloat(line.quantity);
+      const stockQty = stockQtyOf(line);
       const purchaseCost = parseFloat(line.purchaseCost);
       const revenue = parseFloat(line.lineTotal);
-      return total + revenue - qty * purchaseCost;
+      return total + revenue - stockQty * purchaseCost;
     }, 0);
   }
 

@@ -71,6 +71,10 @@ export class CreateBomDto {
   @IsString()
   notes?: string;
 
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+
   @IsArray()
   @ArrayMinSize(1)
   @ValidateNested({ each: true })

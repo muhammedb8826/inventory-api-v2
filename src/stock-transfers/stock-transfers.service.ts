@@ -68,7 +68,7 @@ export class StockTransfersService {
       relations: {
         fromLocation: true,
         toLocation: true,
-        lines: { item: true },
+        lines: { item: { stockUom: true } },
       },
     });
   }

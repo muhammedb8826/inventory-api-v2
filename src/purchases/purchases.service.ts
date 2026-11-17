@@ -126,7 +126,10 @@ export class PurchasesService {
       relations: {
         supplier: true,
         location: true,
-        lines: { item: true },
+        lines: {
+          item: { stockUom: true },
+          uom: true,
+        },
         credit: true,
       },
     });

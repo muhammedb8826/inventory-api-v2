@@ -146,7 +146,11 @@ export class DashboardService {
     let cost = 0;
     for (const line of lines) {
       revenue += parseFloat(line.lineTotal);
-      cost += parseFloat(line.quantity) * parseFloat(line.purchaseCost);
+      const stockQty =
+        line.stockQuantity != null && line.stockQuantity !== ''
+          ? parseFloat(line.stockQuantity)
+          : parseFloat(line.quantity);
+      cost += stockQty * parseFloat(line.purchaseCost);
     }
 
     const expenseQb = this.expenseRepo.createQueryBuilder('expense');

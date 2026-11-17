@@ -195,6 +195,7 @@ export class InventoryService {
           .clone()
           .leftJoinAndSelect('stock.item', 'item')
           .leftJoinAndSelect('item.stockUom', 'stockUom')
+          .leftJoinAndSelect('stockUom.category', 'stockUomCategory')
           .leftJoinAndSelect('item.salesUom', 'salesUom')
           .leftJoinAndSelect('item.purchaseUom', 'purchaseUom')
           .leftJoinAndSelect('stock.location', 'location')

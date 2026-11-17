@@ -84,11 +84,11 @@ export class ProductionService {
     const order = await this.orderRepo.findOne({
       where: { id },
       relations: {
-        finishedItem: true,
+        finishedItem: { stockUom: true },
         location: true,
         bom: true,
         createdBy: true,
-        lines: { componentItem: true },
+        lines: { componentItem: { stockUom: true } },
       },
     });
     if (!order) throw new NotFoundException('Production order not found');

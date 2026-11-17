@@ -58,10 +58,13 @@ export class ProfitLossService {
         cost: 0,
         profit: 0,
       };
-      const qty = parseFloat(line.quantity);
+      const stockQty =
+        line.stockQuantity != null && line.stockQuantity !== ''
+          ? parseFloat(String(line.stockQuantity))
+          : parseFloat(line.quantity);
       const revenue = parseFloat(line.lineTotal);
-      const cost = qty * parseFloat(line.purchaseCost);
-      existing.quantitySold += qty;
+      const cost = stockQty * parseFloat(line.purchaseCost);
+      existing.quantitySold += stockQty;
       existing.revenue += revenue;
       existing.cost += cost;
       existing.profit += revenue - cost;
@@ -87,7 +90,11 @@ export class ProfitLossService {
     let cost = 0;
     for (const line of lines) {
       revenue += parseFloat(line.lineTotal);
-      cost += parseFloat(line.quantity) * parseFloat(line.purchaseCost);
+      const stockQty =
+        line.stockQuantity != null && line.stockQuantity !== ''
+          ? parseFloat(String(line.stockQuantity))
+          : parseFloat(line.quantity);
+      cost += stockQty * parseFloat(line.purchaseCost);
     }
     const expenses = await this.loadExpenses(from, to);
     const totalExpenses = expenses.reduce(

@@ -99,7 +99,10 @@ export class BomsService {
       where: { id },
       relations: {
         finishedItem: true,
-        lines: { componentItem: true },
+        lines: {
+          componentItem: { stockUom: true },
+          uom: true,
+        },
       },
     });
     if (!bom) throw new NotFoundException('BOM not found');
@@ -116,7 +119,7 @@ export class BomsService {
         name: dto.name.trim(),
         version: dto.version?.trim() || null,
         notes: dto.notes?.trim() || null,
-        isActive: true,
+        isActive: dto.isActive ?? true,
         lines: (await this.mapBomLines(dto.lines)).map((line) =>
           Object.assign(new BomLine(), line),
         ),
