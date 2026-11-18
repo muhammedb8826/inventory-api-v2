@@ -85,6 +85,8 @@ export const PERMISSION_DEFINITIONS = [
     name: 'Manage customer inquiries',
     module: 'inquiries',
   },
+  { code: 'messages.read', name: 'View staff messages', module: 'messages' },
+  { code: 'messages.write', name: 'Send staff messages', module: 'messages' },
   {
     code: 'settings.read',
     name: 'View site settings / branding',
@@ -118,6 +120,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'customers.write',
     'inquiries.read',
     'inquiries.write',
+    'messages.read',
+    'messages.write',
     'bank.read',
     'bank.write',
     'credit.read',
@@ -142,6 +146,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'locations.read',
     'uom.read',
     'attributes.read',
+    'messages.read',
+    'messages.write',
   ],
   'Stock Keeper': [
     'inventory.read',
@@ -159,5 +165,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'uom.write',
     'attributes.read',
     'attributes.write',
+    'messages.read',
+    'messages.write',
   ],
 };

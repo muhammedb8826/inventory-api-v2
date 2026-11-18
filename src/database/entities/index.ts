@@ -28,6 +28,7 @@ export { ProductionOrder } from './production-order.entity';
 export { ProductionOrderLine } from './production-order-line.entity';
 export { CustomerInquiry } from './customer-inquiry.entity';
 export { CustomerInquiryLine } from './customer-inquiry-line.entity';
+export { StaffMessage } from './staff-message.entity';
 export { SiteBranding } from './site-branding.entity';
 export { UomCategory } from './uom-category.entity';
 export { Uom } from './uom.entity';
@@ -66,6 +67,7 @@ import { ProductionOrder } from './production-order.entity';
 import { ProductionOrderLine } from './production-order-line.entity';
 import { CustomerInquiry } from './customer-inquiry.entity';
 import { CustomerInquiryLine } from './customer-inquiry-line.entity';
+import { StaffMessage } from './staff-message.entity';
 import { SiteBranding } from './site-branding.entity';
 import { UomCategory } from './uom-category.entity';
 import { Uom } from './uom.entity';
@@ -105,6 +107,7 @@ export const entities = [
   ProductionOrderLine,
   CustomerInquiry,
   CustomerInquiryLine,
+  StaffMessage,
   SiteBranding,
   UomCategory,
   Uom,

@@ -40,6 +40,8 @@ export class UsersController {
     'inquiries.write',
     'inquiries.read',
     'sales.write',
+    'messages.read',
+    'messages.write',
   )
   findAssignees() {
     return this.usersService.findAssignees();
