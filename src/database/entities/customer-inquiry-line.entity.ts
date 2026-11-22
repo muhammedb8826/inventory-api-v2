@@ -30,6 +30,10 @@ export class CustomerInquiryLine {
   @Column({ type: 'decimal', precision: 14, scale: 3, nullable: true })
   quantity: string | null;
 
+  /** Quoted unit price (null while still an unpriced inquiry). */
+  @Column({ name: 'unit_price', type: 'decimal', precision: 14, scale: 2, nullable: true })
+  unitPrice: string | null;
+
   @Column({ type: 'text', nullable: true })
   notes: string | null;
 

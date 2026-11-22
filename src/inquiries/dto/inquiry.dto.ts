@@ -33,12 +33,19 @@ export class InquiryLineDto {
   @Min(0.001)
   quantity?: number;
 
+  /** Quoted rate; required when inquiry status is QUOTED. */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  unitPrice?: number;
+
   @IsOptional()
   @IsString()
   notes?: string;
 }
 
-/** Shared contact + message fields for public and internal create. */
+/** Shared contact + line fields for public and internal create. */
 export class CreateInquiryBaseDto {
   @IsString()
   @MinLength(1)
@@ -60,15 +67,6 @@ export class CreateInquiryBaseDto {
   @MaxLength(150)
   email?: string;
 
-  @IsString()
-  @MinLength(1)
-  @MaxLength(200)
-  subject: string;
-
-  @IsString()
-  @MinLength(1)
-  message: string;
-
   /**
    * Preferred: multiple catalog items of interest.
    * Legacy: single `itemId` still accepted and stored as one line.
@@ -86,11 +84,29 @@ export class CreateInquiryBaseDto {
   itemId?: string;
 }
 
-/** Website / unauthenticated submission. */
-export class PublicCreateInquiryDto extends CreateInquiryBaseDto {}
+/** Website / unauthenticated submission — free-text subject/message (items optional). */
+export class PublicCreateInquiryDto extends CreateInquiryBaseDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(200)
+  subject: string;
 
-/** Staff-created inquiry (walk-in / phone). */
+  @IsString()
+  @MinLength(1)
+  message: string;
+}
+
+/** Staff-created inquiry (walk-in / phone). Title is derived from order lines when omitted. */
 export class CreateInquiryDto extends CreateInquiryBaseDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  subject?: string;
+
+  @IsOptional()
+  @IsString()
+  message?: string;
+
   @IsOptional()
   @IsEnum(InquiryPriority)
   priority?: InquiryPriority;
@@ -114,6 +130,19 @@ export class CreateInquiryDto extends CreateInquiryBaseDto {
   @IsOptional()
   @IsDateString()
   requiredByAt?: string;
+
+  @IsOptional()
+  @IsDateString()
+  validUntil?: string;
+
+  @IsOptional()
+  @IsString()
+  quoteTerms?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  reference?: string;
 }
 
 export class UpdateInquiryDto {
@@ -141,13 +170,11 @@ export class UpdateInquiryDto {
 
   @IsOptional()
   @IsString()
-  @MinLength(1)
   @MaxLength(200)
   subject?: string;
 
   @IsOptional()
   @IsString()
-  @MinLength(1)
   message?: string;
 
   @IsOptional()
@@ -190,6 +217,19 @@ export class UpdateInquiryDto {
   requiredByAt?: string | null;
 
   @IsOptional()
+  @IsDateString()
+  validUntil?: string | null;
+
+  @IsOptional()
+  @IsString()
+  quoteTerms?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  reference?: string | null;
+
+  @IsOptional()
   @IsUUID()
   convertedSaleId?: string | null;
 }
@@ -214,6 +254,11 @@ export class InquiryListQueryDto extends ListQueryDto {
   @IsOptional()
   @IsUUID()
   assignedToUserId?: string;
+
+  /** Filter by the staff user who created the quotation. */
+  @IsOptional()
+  @IsUUID()
+  createdById?: string;
 
   /** Filter inquiries that include this catalog item on any line. */
   @IsOptional()

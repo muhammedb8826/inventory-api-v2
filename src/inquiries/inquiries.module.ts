@@ -6,7 +6,6 @@ import { CustomerInquiry } from '../database/entities/customer-inquiry.entity';
 import { Item } from '../database/entities/item.entity';
 import { Sale } from '../database/entities/sale.entity';
 import { User } from '../database/entities/user.entity';
-import { NotificationsModule } from '../notifications/notifications.module';
 import { InquiriesController } from './inquiries.controller';
 import { InquiriesService } from './inquiries.service';
 import { PublicInquiriesController } from './public-inquiries.controller';
@@ -21,7 +20,6 @@ import { PublicInquiriesController } from './public-inquiries.controller';
       User,
       Sale,
     ]),
-    NotificationsModule,
   ],
   controllers: [InquiriesController, PublicInquiriesController],
   providers: [InquiriesService],

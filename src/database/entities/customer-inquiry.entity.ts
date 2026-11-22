@@ -46,7 +46,7 @@ export class CustomerInquiry extends UuidBaseEntity {
   @Column({
     type: 'enum',
     enum: InquiryStatus,
-    default: InquiryStatus.NEW,
+    default: InquiryStatus.DRAFT,
   })
   status: InquiryStatus;
 
@@ -93,6 +93,29 @@ export class CustomerInquiry extends UuidBaseEntity {
   /** Customer-needed-by / expected decision date (distinct from follow-up reminder). */
   @Column({ name: 'required_by_at', type: 'timestamptz', nullable: true })
   requiredByAt: Date | null;
+
+  /** Quote expiry (when status is QUOTED). */
+  @Column({ name: 'valid_until', type: 'timestamptz', nullable: true })
+  validUntil: Date | null;
+
+  /** When prices were first confirmed / marked quoted. */
+  @Column({ name: 'quoted_at', type: 'timestamptz', nullable: true })
+  quotedAt: Date | null;
+
+  /** Sum of priced lines (qty × unitPrice). */
+  @Column({ type: 'decimal', precision: 14, scale: 2, nullable: true })
+  subtotal: string | null;
+
+  @Column({ type: 'decimal', precision: 14, scale: 2, nullable: true })
+  total: string | null;
+
+  /** Customer-facing quote notes / terms. */
+  @Column({ name: 'quote_terms', type: 'text', nullable: true })
+  quoteTerms: string | null;
+
+  /** Customer / external reference (PO number, their quote ref, etc.). */
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  reference: string | null;
 
   @Column({ name: 'converted_sale_id', type: 'uuid', nullable: true })
   convertedSaleId: string | null;

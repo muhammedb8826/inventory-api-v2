@@ -135,12 +135,12 @@ export enum InquirySource {
   INTERNAL = 'INTERNAL',
 }
 
+/** Quotation lifecycle (Odoo / ERPNext-style). */
 export enum InquiryStatus {
-  NEW = 'NEW',
-  IN_PROGRESS = 'IN_PROGRESS',
+  DRAFT = 'DRAFT',
   QUOTED = 'QUOTED',
-  CONVERTED = 'CONVERTED',
-  CLOSED = 'CLOSED',
+  ORDERED = 'ORDERED',
+  LOST = 'LOST',
   CANCELLED = 'CANCELLED',
 }
 
