@@ -1,4 +1,4 @@
-name: Deploy MOHAFUTURE API to cPanel via FTP
+name: Deploy VGate API to cPanel via FTP
 
 on:
   push:
@@ -37,9 +37,9 @@ jobs:
     - name: Deploy runtime bundle to cPanel via FTP
       uses: SamKirkland/FTP-Deploy-Action@v4.3.5
       with:
-        server: ${{ secrets.FTP_SERVER_MOHAFUTURE }}
-        username: ${{ secrets.FTP_USERNAME_MOHAFUTURE }}
-        password: ${{ secrets.FTP_PASSWORD_MOHAFUTURE }}
-        server-dir: ${{ secrets.CPANEL_DIR_MOHAFUTURE }}
+        server: ${{ secrets.FTP_SERVER_VGATE }}
+        username: ${{ secrets.FTP_USERNAME_VGATE }}
+        password: ${{ secrets.FTP_PASSWORD_VGATE }}
+        server-dir: ${{ secrets.CPANEL_DIR_VGATE }}
         local-dir: deploy/
         protocol: ftp
