@@ -62,8 +62,8 @@ export class BomsService {
           width: line.width,
           height: line.height,
           pieces: line.pieces,
-          // Per-line Cut in, else item “Cut dimensions in”, else meters.
-          dimUomId: line.dimUomId ?? item.dimensionUomId,
+          // Line UOM is the dimension unit (m/cm/…); legacy dimUomId still accepted.
+          dimUomId: line.uomId ?? line.dimUomId ?? null,
         },
       );
       const scrap = line.scrapPercent ?? 0;

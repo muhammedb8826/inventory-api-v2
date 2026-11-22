@@ -4,8 +4,6 @@ import { Item } from '../database/entities/item.entity';
 import { UomConversionService } from './uom-conversion.service';
 import { resolveLineUom, type ResolvedLineUom } from './resolve-line-uom';
 
-const AREA = 'AREA';
-
 export type LineDimensionsInput = {
   width?: number | null;
   height?: number | null;
@@ -33,6 +31,10 @@ function hasAnyDimension(dims?: LineDimensionsInput | null): boolean {
   );
 }
 
+function categoryHasConstantWidth(item: Item): boolean {
+  return Boolean(item.stockUom?.category?.hasConstantWidth);
+}
+
 /**
  * Resolve txn qty → stock qty and line total.
  * Cut lines (W×H): stock = W × H × pieces in area base → stock UOM.
@@ -50,20 +52,43 @@ export async function resolveDimensionalLine(
   const wantsCut = hasAnyDimension(dims);
 
   if (wantsCut) {
-    const width = dims?.width;
+    if (!categoryHasConstantWidth(item)) {
+      throw new BadRequestException(
+        `Width × height is not enabled for "${item.description}". ` +
+          'Enable "Has constant width" on the stock UOM category, or remove dimensions from the line.',
+      );
+    }
+
     const height = dims?.height;
     if (
-      width == null ||
       height == null ||
-      !Number.isFinite(width) ||
       !Number.isFinite(height) ||
-      width <= 0 ||
       height <= 0
     ) {
       throw new BadRequestException(
-        'Cut lines require positive width and height',
+        'Cut lines require a positive height (width defaults from item constant width when omitted)',
       );
     }
+
+    // Dimension unit comes from the line (Cut in / line UOM), not the item.
+    const lengthUomId = dims?.dimUomId ?? null;
+    let width = dims?.width;
+    if (
+      width == null ||
+      !Number.isFinite(width) ||
+      width <= 0
+    ) {
+      const constant =
+        item.uomWidth != null ? parseFloat(item.uomWidth) : NaN;
+      if (!Number.isFinite(constant) || constant <= 0) {
+        throw new BadRequestException(
+          'Cut lines need a positive width, or set Constant width on the item',
+        );
+      }
+      // uomWidth is stored in LENGTH base (meters); express in Cut-in UOM.
+      width = await conversion.fromLengthBase(constant, lengthUomId);
+    }
+
     const piecesRaw = dims?.pieces;
     const pieces =
       piecesRaw == null || piecesRaw === undefined ? 1 : Number(piecesRaw);
@@ -71,50 +96,54 @@ export async function resolveDimensionalLine(
       throw new BadRequestException('Pieces must be at least 1');
     }
 
-    if (!item.dimensionPriceMode) {
-      throw new BadRequestException(
-        'Enable dimension pricing on the item (By area or By piece) before using cuts',
-      );
-    }
-    const stockCategory = item.stockUom?.category?.code;
     const stockLabel =
       item.stockUom?.symbol ?? item.stockUom?.code ?? item.unit ?? 'unknown';
-    if (!stockCategory || stockCategory !== AREA) {
+    if (!item.stockUom?.category?.hasConstantWidth) {
       throw new BadRequestException(
-        `Width × height cuts need an Area stock UOM (e.g. m²). "${item.description}" is stocked in ${stockLabel}` +
-          (stockCategory ? ` (${stockCategory})` : '') +
-          '. Set stock UOM to Square Meter, keep roll width for Length purchases, then retry.',
+        `Width × height cuts need a constant-width stock category (e.g. Area / m²). "${item.description}" is stocked in ${stockLabel}.`,
       );
     }
 
-    // Prefer per-line Cut in, else item “Cut dimensions in”, else meters (LENGTH base).
-    // null length UOM means values are already in meters — that is why 10×10×2 became 200 m²
-    // when Banner had dimensionUomId unset (user expected cm).
-    const lengthUomId = dims?.dimUomId ?? item.dimensionUomId ?? null;
     const [wLen, hLen] = await Promise.all([
       conversion.toLengthBase(width, lengthUomId),
       conversion.toLengthBase(height, lengthUomId),
     ]);
     const dimUomId = wLen.uom?.id ?? lengthUomId;
 
-    // Area in category base (m² when LENGTH base is meters).
+    // Area in m² (LENGTH base × LENGTH base).
     const areaBase = wLen.base * hLen.base * pieces;
-    let stockQuantity = areaBase;
-    if (item.stockUomId && item.stockUom) {
-      const stockF = parseFloat(item.stockUom.conversionFactor || '1');
-      if (!Number.isFinite(stockF) || stockF === 0) {
-        throw new BadRequestException('Stock UOM conversion factor is zero');
+    const stockCode = item.stockUom?.category?.code ?? null;
+    const stockF = item.stockUom
+      ? parseFloat(item.stockUom.conversionFactor || '1')
+      : 1;
+    if (!Number.isFinite(stockF) || stockF === 0) {
+      throw new BadRequestException('Stock UOM conversion factor is zero');
+    }
+
+    let stockQuantity: number;
+    if (stockCode === 'LENGTH') {
+      // Stocked as roll length: length = area / constant width.
+      const constant =
+        item.uomWidth != null ? parseFloat(item.uomWidth) : NaN;
+      if (!Number.isFinite(constant) || constant <= 0) {
+        throw new BadRequestException(
+          'Constant width is required to convert cuts into length stock',
+        );
       }
+      stockQuantity = areaBase / constant / stockF;
+    } else {
+      // Stocked as area (m², etc.).
       stockQuantity = areaBase / stockF;
     }
 
-    const mode = item.dimensionPriceMode;
+    // Default By area when cut dims are used but cut pricing was left unset.
+    const mode = item.dimensionPriceMode ?? DimensionPriceMode.AREA;
     const lineTotal =
       mode === DimensionPriceMode.PIECE
         ? pieces * unitPrice
         : stockQuantity * unitPrice;
 
-    // Document qty: pieces for PIECE pricing, else area in stock UOM
+    // Document qty: pieces for PIECE pricing, else qty in stock UOM
     const documentQty =
       mode === DimensionPriceMode.PIECE ? pieces : stockQuantity;
 

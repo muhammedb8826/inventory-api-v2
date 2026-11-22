@@ -279,7 +279,12 @@ export class PurchasesService {
           l.quantity ?? l.pieces ?? 1,
           l.unitPrice,
           l.uomId,
-          { width: l.width, height: l.height, pieces: l.pieces },
+          {
+            width: l.width,
+            height: l.height,
+            pieces: l.pieces,
+            dimUomId: l.uomId,
+          },
         );
         resolved.push({ line: l, dim });
       }
@@ -454,7 +459,12 @@ export class PurchasesService {
           l.quantity ?? l.pieces ?? 1,
           l.unitPrice,
           l.uomId,
-          { width: l.width, height: l.height, pieces: l.pieces },
+          {
+            width: l.width,
+            height: l.height,
+            pieces: l.pieces,
+            dimUomId: l.uomId,
+          },
         );
         resolved.push({ line: l, dim });
       }

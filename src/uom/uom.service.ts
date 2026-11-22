@@ -33,6 +33,7 @@ type SeedCategory = {
   code: string;
   name: string;
   description: string;
+  hasConstantWidth?: boolean;
   uoms: SeedUom[];
 };
 
@@ -78,6 +79,7 @@ const STANDARD_CATEGORIES: SeedCategory[] = [
     name: 'Area',
     description:
       'Surface measure (sqm). Stock fabric/carpet here; sell by Length with uomWidth',
+    hasConstantWidth: true,
     uoms: [
       {
         code: 'SQM',
@@ -165,6 +167,7 @@ export class UomService implements OnModuleInit {
             name: cat.name,
             description: cat.description,
             isActive: true,
+            hasConstantWidth: Boolean(cat.hasConstantWidth),
           }),
         );
 
@@ -260,6 +263,7 @@ export class UomService implements OnModuleInit {
         name: dto.name.trim(),
         description: dto.description?.trim() || null,
         isActive: dto.isActive ?? true,
+        hasConstantWidth: dto.hasConstantWidth ?? false,
       }),
     );
   }
@@ -275,6 +279,9 @@ export class UomService implements OnModuleInit {
       row.description = dto.description?.trim() || null;
     }
     if (dto.isActive !== undefined) row.isActive = dto.isActive;
+    if (dto.hasConstantWidth !== undefined) {
+      row.hasConstantWidth = dto.hasConstantWidth;
+    }
     return this.categoryRepo.save(row);
   }
 

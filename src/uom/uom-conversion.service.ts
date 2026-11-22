@@ -6,7 +6,6 @@ import { ItemUom } from '../database/entities/item-uom.entity';
 import { Uom } from '../database/entities/uom.entity';
 
 const LENGTH = 'LENGTH';
-const AREA = 'AREA';
 
 export type ConvertToStockInput = {
   item: Item;
@@ -86,14 +85,14 @@ export class UomConversionService {
       return (quantity * fromF) / stockF;
     }
 
-    // Length ↔ Area via item width
-    const fromCode = fromUom.category?.code;
-    const stockCode = stockUom.category?.code;
+    // Length ↔ constant-width (Area) via item width
+    const fromHasWidth = Boolean(fromUom.category?.hasConstantWidth);
+    const stockHasWidth = Boolean(stockUom.category?.hasConstantWidth);
     const width = item.uomWidth != null ? parseFloat(item.uomWidth) : NaN;
 
     if (
-      fromCode === LENGTH &&
-      stockCode === AREA &&
+      !fromHasWidth &&
+      stockHasWidth &&
       Number.isFinite(width) &&
       width > 0
     ) {
@@ -107,8 +106,8 @@ export class UomConversionService {
     }
 
     if (
-      fromCode === AREA &&
-      stockCode === LENGTH &&
+      fromHasWidth &&
+      !stockHasWidth &&
       Number.isFinite(width) &&
       width > 0
     ) {
@@ -123,7 +122,7 @@ export class UomConversionService {
 
     throw new BadRequestException(
       `Cannot convert ${fromUom.symbol} to ${stockUom.symbol} for this item. ` +
-        `Add an item UOM conversion, or set uomWidth for Length↔Area.`,
+        `Add an item UOM conversion, or set constant width for Length↔Area.`,
     );
   }
 
@@ -184,6 +183,31 @@ export class UomConversionService {
       base: value * parseFloat(uom.conversionFactor || '1'),
       uom,
     };
+  }
+
+  /**
+   * Express a LENGTH-base value (meters) in the given Length UOM.
+   * When `uomId` is omitted, returns the base value unchanged.
+   */
+  async fromLengthBase(
+    baseValue: number,
+    uomId?: string | null,
+  ): Promise<number> {
+    if (!Number.isFinite(baseValue)) {
+      throw new BadRequestException('Invalid length value');
+    }
+    if (!uomId) return baseValue;
+    const uom = await this.requireUom(uomId);
+    if (uom.category?.code !== LENGTH) {
+      throw new BadRequestException(
+        'Cut dimension UOM must be a Length unit (m, cm, mm)',
+      );
+    }
+    const factor = parseFloat(uom.conversionFactor || '1');
+    if (!Number.isFinite(factor) || factor === 0) {
+      throw new BadRequestException('Length UOM conversion factor is zero');
+    }
+    return baseValue / factor;
   }
 
   private async requireUom(id: string): Promise<Uom> {

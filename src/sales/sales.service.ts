@@ -514,6 +514,7 @@ export class SalesService {
             width: dtoLine.width,
             height: dtoLine.height,
             pieces: dtoLine.pieces,
+            dimUomId: dtoLine.uomId,
           },
         );
         const explosion = await this.kitSale.explodeSaleLine(
@@ -798,6 +799,7 @@ export class SalesService {
             width: line.width,
             height: line.height,
             pieces: line.pieces,
+            dimUomId: line.uomId,
           },
         );
         const explosion = await this.kitSale.explodeSaleLine(

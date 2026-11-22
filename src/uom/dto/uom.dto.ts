@@ -28,6 +28,10 @@ export class CreateUomCategoryDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  hasConstantWidth?: boolean;
 }
 
 export class UpdateUomCategoryDto {
@@ -50,6 +54,10 @@ export class UpdateUomCategoryDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  hasConstantWidth?: boolean;
 }
 
 export class CreateUomDto {

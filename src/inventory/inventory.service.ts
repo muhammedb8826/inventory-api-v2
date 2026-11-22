@@ -180,15 +180,8 @@ export class InventoryService {
         item.dimensionUomId = uom.id;
         item.dimensionUom = uom;
       } else {
-        // Only clear when cut pricing is off; otherwise ensureDimensionUom fills default.
-        const mode =
-          fields.dimensionPriceMode !== undefined
-            ? fields.dimensionPriceMode
-            : item.dimensionPriceMode;
-        if (!mode) {
-          item.dimensionUomId = null;
-          item.dimensionUom = null;
-        }
+        item.dimensionUomId = null;
+        item.dimensionUom = null;
       }
     }
     if (fields.unit !== undefined && fields.stockUomId === undefined) {
@@ -229,11 +222,20 @@ export class InventoryService {
 
   private attachItemImageUrl<
     T extends {
+      quantity?: string | number | null;
+      quantityLinear?: string | null;
+      linearUomSymbol?: string | null;
       item?: {
         imagePath?: string | null;
         imageUrl?: string | null;
+        uomWidth?: string | null;
         itemAttributeValues?: ItemAttributeValue[] | null;
         attributeValues?: ProductAttributeValue[];
+        stockUom?: {
+          conversionFactor?: string | null;
+          category?: { hasConstantWidth?: boolean } | null;
+        } | null;
+        dimensionUom?: { symbol?: string | null; conversionFactor?: string | null } | null;
       } | null;
     },
   >(row: T, requestBaseUrl?: string): T {
@@ -244,16 +246,72 @@ export class InventoryService {
       );
       this.flattenItemAttributeValues(row.item);
     }
+    this.attachLinearQuantity(row);
     return row;
+  }
+
+  /** Dual display: stock area qty + equivalent linear length when constant width is set. */
+  private attachLinearQuantity<
+    T extends {
+      quantity?: string | number | null;
+      quantityLinear?: string | null;
+      linearUomSymbol?: string | null;
+      item?: {
+        uomWidth?: string | null;
+        stockUom?: {
+          conversionFactor?: string | null;
+          category?: { hasConstantWidth?: boolean } | null;
+        } | null;
+        dimensionUom?: { symbol?: string | null; conversionFactor?: string | null } | null;
+      } | null;
+    },
+  >(row: T): void {
+    const item = row.item;
+    const width =
+      item?.uomWidth != null ? parseFloat(String(item.uomWidth)) : NaN;
+    const qty =
+      row.quantity != null ? parseFloat(String(row.quantity)) : NaN;
+    if (
+      !item?.stockUom?.category?.hasConstantWidth ||
+      !Number.isFinite(width) ||
+      width <= 0 ||
+      !Number.isFinite(qty)
+    ) {
+      return;
+    }
+    const stockF = parseFloat(item.stockUom?.conversionFactor || '1');
+    if (!Number.isFinite(stockF) || stockF === 0) return;
+    const stockCode = (item.stockUom as { category?: { code?: string } } | null)
+      ?.category?.code;
+    if (stockCode === 'LENGTH') {
+      // Already linear meters (or length UOM): optional area equivalent.
+      const lengthBase = qty * stockF;
+      row.quantityLinear = (lengthBase * width).toFixed(9);
+      row.linearUomSymbol = 'm²';
+      return;
+    }
+    // Area stock → linear meters of roll.
+    const areaBase = qty * stockF;
+    row.quantityLinear = (areaBase / width).toFixed(9);
+    row.linearUomSymbol = 'm';
   }
 
   private attachItemImageUrls<
     T extends {
+      quantity?: string | number | null;
+      quantityLinear?: string | null;
+      linearUomSymbol?: string | null;
       item?: {
         imagePath?: string | null;
         imageUrl?: string | null;
+        uomWidth?: string | null;
         itemAttributeValues?: ItemAttributeValue[] | null;
         attributeValues?: ProductAttributeValue[];
+        stockUom?: {
+          conversionFactor?: string | null;
+          category?: { hasConstantWidth?: boolean } | null;
+        } | null;
+        dimensionUom?: { symbol?: string | null; conversionFactor?: string | null } | null;
       } | null;
     },
   >(rows: T[], requestBaseUrl?: string): T[] {
@@ -532,48 +590,39 @@ export class InventoryService {
     }
   }
 
-  /** Cut pricing (W×H) only works when inventory is stored in Area (m²). */
+  /** Cut pricing / constant width only when stock UOM category has constant width. */
   private async assertDimensionPricingRequiresAreaStock(
     stockUomId: string | null | undefined,
     dimensionPriceMode: import('../common/enums').DimensionPriceMode | null | undefined,
+    uomWidth?: number | null,
   ) {
-    if (!dimensionPriceMode) return;
+    const needsWidthCategory =
+      Boolean(dimensionPriceMode) ||
+      (uomWidth != null && Number.isFinite(uomWidth) && uomWidth > 0);
+    if (!needsWidthCategory) return;
     if (!stockUomId) {
       throw new BadRequestException(
-        'Cut pricing requires an Area stock UOM (e.g. m²). Set stock UOM before enabling cut pricing.',
+        'Constant width / cut pricing requires a constant-width stock UOM (e.g. m²). Set stock UOM first.',
       );
     }
     const stockUom = await this.uomService.findUom(stockUomId);
-    if (stockUom.category?.code !== 'AREA') {
+    if (!stockUom.category?.hasConstantWidth) {
       throw new BadRequestException(
-        `Cut pricing requires an Area stock UOM (e.g. m²). Current stock UOM is ${stockUom.symbol} (${stockUom.category?.code ?? 'unknown'}). Use Square Meter for stock; set roll width for Length purchases.`,
+        `Constant width / cut pricing requires a stock UOM category with "Has constant width" (e.g. Area / m²). Current stock UOM is ${stockUom.symbol} (${stockUom.category?.code ?? 'unknown'}).`,
       );
     }
   }
 
-  /** Ensure cut items have a Length dimension UOM (default meters). */
+  /** Validate optional Length UOM used for W×H entry (null = meters). */
   private async ensureDimensionUom(item: Item) {
-    if (!item.dimensionPriceMode) return;
-    if (item.dimensionUomId) {
-      const uom = await this.uomService.findUom(item.dimensionUomId);
-      if (uom.category?.code !== 'LENGTH') {
-        throw new BadRequestException(
-          'Cut dimension UOM must be a Length unit (m, cm, mm)',
-        );
-      }
-      item.dimensionUom = uom;
-      return;
-    }
-    const meters =
-      (await this.uomService.findByCode('M')) ??
-      (await this.uomService.findByCode('m'));
-    if (!meters || meters.category?.code !== 'LENGTH') {
+    if (!item.dimensionUomId) return;
+    const uom = await this.uomService.findUom(item.dimensionUomId);
+    if (uom.category?.code !== 'LENGTH') {
       throw new BadRequestException(
-        'Cut pricing needs a Length UOM. Seed meter (m) or set Cut dimensions in on the item.',
+        'Cut dimension UOM must be a Length unit (m, cm, mm)',
       );
     }
-    item.dimensionUomId = meters.id;
-    item.dimensionUom = meters;
+    item.dimensionUom = uom;
   }
 
   private async prepareNewItemFields(dto: CreateInventoryDto): Promise<Item> {
@@ -617,6 +666,7 @@ export class InventoryService {
     await this.assertDimensionPricingRequiresAreaStock(
       item.stockUomId,
       item.dimensionPriceMode,
+      item.uomWidth != null ? parseFloat(item.uomWidth) : null,
     );
     await this.ensureDimensionUom(item);
     return item;
@@ -886,6 +936,7 @@ export class InventoryService {
       await this.assertDimensionPricingRequiresAreaStock(
         stock.item.stockUomId,
         stock.item.dimensionPriceMode,
+        stock.item.uomWidth != null ? parseFloat(stock.item.uomWidth) : null,
       );
       await this.ensureDimensionUom(stock.item);
       await this.itemRepo.save(stock.item);

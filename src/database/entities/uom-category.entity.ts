@@ -26,6 +26,13 @@ export class UomCategory extends UuidBaseEntity {
   @Column({ name: 'is_active', default: true })
   isActive: boolean;
 
+  /**
+   * When true, items stocked in this category may set a constant roll width
+   * and use W×H / Length→Area conversion. When false, width/height stay hidden.
+   */
+  @Column({ name: 'has_constant_width', default: false })
+  hasConstantWidth: boolean;
+
   @OneToMany(() => Uom, (uom) => uom.category)
   uoms: Uom[];
 

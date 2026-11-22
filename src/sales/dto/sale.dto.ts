@@ -27,8 +27,8 @@ export class SaleLineDto {
   })
   itemId: string;
 
-  /** Required unless width+height cut is provided. */
-  @ValidateIf((o: SaleLineDto) => o.width == null || o.height == null)
+  /** Required unless a cut height is provided (width may default from item). */
+  @ValidateIf((o: SaleLineDto) => o.height == null)
   @Type(() => Number)
   @IsNumber()
   @Min(0.001)
