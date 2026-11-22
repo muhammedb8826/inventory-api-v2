@@ -11,6 +11,7 @@ import {
   CreditStatus,
   DocumentStatus,
   PaymentMethod,
+  StockMovementRefType,
 } from '../common/enums';
 import {
   applyDateRangeToQb,
@@ -242,6 +243,10 @@ export class PurchasesService {
             locationId: oldLocationId,
             itemId: line.itemId,
             quantityDelta: -stockQtyOf(line),
+            refType: StockMovementRefType.PURCHASE,
+            refId: purchase.id,
+            notes: 'Purchase update — reverse previous stock',
+            createdById: userId ?? null,
           },
           manager,
         );
@@ -325,6 +330,10 @@ export class PurchasesService {
             itemId: dim.itemId,
             quantityDelta: dim.stockQuantity,
             purchasePrice: stockUnitCost,
+            refType: StockMovementRefType.PURCHASE,
+            refId: purchase.id,
+            notes: 'Purchase',
+            createdById: userId ?? null,
           },
           manager,
         );
@@ -395,6 +404,10 @@ export class PurchasesService {
             locationId: purchase.locationId,
             itemId: line.itemId,
             quantityDelta: -stockQtyOf(line),
+            refType: StockMovementRefType.PURCHASE,
+            refId: purchase.id,
+            notes: 'Purchase void — reverse stock',
+            createdById: userId ?? null,
           },
           manager,
         );
@@ -511,6 +524,10 @@ export class PurchasesService {
             itemId: dim.itemId,
             quantityDelta: dim.stockQuantity,
             purchasePrice: stockUnitCost,
+            refType: StockMovementRefType.PURCHASE,
+            refId: purchase.id,
+            notes: 'Purchase',
+            createdById: userId ?? null,
           },
           manager,
         );

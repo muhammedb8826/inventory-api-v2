@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
-import { TransferStatus } from '../common/enums';
+import { StockMovementRefType, TransferStatus } from '../common/enums';
 import {
   applyDateRangeToQb,
   applyIlikeSearch,
@@ -111,6 +111,11 @@ export class StockTransfersService {
           line.itemId,
           line.quantity,
           manager,
+          {
+            refType: StockMovementRefType.STOCK_TRANSFER,
+            refId: transfer.id,
+            createdById: userId ?? null,
+          },
         );
         stockChanges.push({
           locationId: dto.fromLocationId,
@@ -159,6 +164,11 @@ export class StockTransfersService {
           line.itemId,
           parseFloat(line.quantity),
           manager,
+          {
+            refType: StockMovementRefType.STOCK_TRANSFER,
+            refId: transfer.id,
+            notes: 'Transfer void — reverse',
+          },
         );
       }
       transfer.status = TransferStatus.CANCELLED;

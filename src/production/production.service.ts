@@ -5,7 +5,11 @@ import {
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
-import { BomType, ProductionOrderStatus } from '../common/enums';
+import {
+  BomType,
+  ProductionOrderStatus,
+  StockMovementRefType,
+} from '../common/enums';
 import {
   applyDateRangeToQb,
   applyIlikeSearch,
@@ -449,6 +453,9 @@ export class ProductionService {
             locationId: order.locationId,
             itemId: row.line.componentItemId,
             quantityDelta: -row.quantity,
+            refType: StockMovementRefType.PRODUCTION,
+            refId: order.id,
+            notes: 'Production issue',
           },
           manager,
         );
@@ -567,6 +574,9 @@ export class ProductionService {
             locationId: order.locationId,
             itemId: row.line.componentItemId,
             quantityDelta: -row.shortfall,
+            refType: StockMovementRefType.PRODUCTION,
+            refId: order.id,
+            notes: 'Production complete — auto-issue',
           },
           manager,
         );
@@ -604,6 +614,9 @@ export class ProductionService {
           itemId: order.finishedItemId,
           quantityDelta: dto.quantity,
           purchasePrice: fgUnitCost,
+          refType: StockMovementRefType.PRODUCTION,
+          refId: order.id,
+          notes: 'Production complete — finished goods',
         },
         manager,
       );
@@ -677,6 +690,9 @@ export class ProductionService {
             locationId: order.locationId,
             itemId: line.componentItemId,
             quantityDelta: issued,
+            refType: StockMovementRefType.PRODUCTION,
+            refId: order.id,
+            notes: 'Production cancel — return materials',
           },
           manager,
         );
@@ -752,6 +768,9 @@ export class ProductionService {
           locationId: order.locationId,
           itemId: order.finishedItemId,
           quantityDelta: -completed,
+          refType: StockMovementRefType.PRODUCTION,
+          refId: order.id,
+          notes: 'Production reverse — remove finished goods',
         },
         manager,
       );
@@ -774,6 +793,9 @@ export class ProductionService {
             locationId: order.locationId,
             itemId: line.componentItemId,
             quantityDelta: issued,
+            refType: StockMovementRefType.PRODUCTION,
+            refId: order.id,
+            notes: 'Production reverse — return materials',
           },
           manager,
         );

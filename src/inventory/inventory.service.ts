@@ -16,6 +16,7 @@ import {
   ItemType,
   StockAdjustmentDirection,
   StockAdjustmentReason,
+  StockMovementRefType,
 } from '../common/enums';
 import {
   absoluteMediaUrl,
@@ -34,6 +35,7 @@ import { Location } from '../database/entities/location.entity';
 import { ProductAttributeValue } from '../database/entities/product-attribute-value.entity';
 import { StockAdjustment } from '../database/entities/stock-adjustment.entity';
 import { StockLevel } from '../database/entities/stock-level.entity';
+import { StockMovement } from '../database/entities/stock-movement.entity';
 import { StockService } from './stock.service';
 import { LowStockService } from '../notifications/low-stock.service';
 import { CreateInventoryDto, UpdateInventoryDto } from './dto/inventory.dto';
@@ -42,6 +44,7 @@ import {
   CreateStockAdjustmentDto,
   StockAdjustmentListQueryDto,
 } from './dto/stock-adjustment.dto';
+import { StockMovementListQueryDto } from './dto/stock-movement.dto';
 import type {
   UploadedExcelFile,
   UploadedImageFile,
@@ -106,6 +109,8 @@ export class InventoryService {
     private readonly locationRepo: Repository<Location>,
     @InjectRepository(StockAdjustment)
     private readonly adjustmentRepo: Repository<StockAdjustment>,
+    @InjectRepository(StockMovement)
+    private readonly movementRepo: Repository<StockMovement>,
     @InjectRepository(ItemAttributeValue)
     private readonly itemAttributeValueRepo: Repository<ItemAttributeValue>,
     @InjectRepository(ProductAttributeValue)
@@ -765,18 +770,21 @@ export class InventoryService {
           ),
         );
 
-        const stock = await stockRepo.save(
-          stockRepo.create({
+        const stock = await this.stockService.adjust(
+          {
             locationId: dto.locationId,
             itemId: savedVariant.id,
-            quantity: dto.quantity.toFixed(3),
-            purchasePrice: dto.purchasePrice.toFixed(2),
-            reorderPoint:
-              dto.reorderPoint !== undefined
-                ? dto.reorderPoint.toFixed(3)
-                : null,
-          }),
+            quantityDelta: dto.quantity,
+            purchasePrice: dto.purchasePrice,
+            refType: StockMovementRefType.OPENING,
+            notes: 'Opening / variant stock',
+          },
+          manager,
         );
+        if (dto.reorderPoint !== undefined) {
+          stock.reorderPoint = dto.reorderPoint.toFixed(3);
+          await stockRepo.save(stock);
+        }
         createdStockIds.push(stock.id);
       }
 
@@ -835,35 +843,22 @@ export class InventoryService {
       await this.syncItemAttributeValues(item.id, dto.attributeValueIds);
     }
 
-    const existing = await this.stockService.getStock(dto.locationId, item.id);
-    if (existing) {
-      const adjusted = await this.stockService.adjust({
-        locationId: dto.locationId,
-        itemId: item.id,
-        quantityDelta: dto.quantity,
-        purchasePrice: dto.purchasePrice,
-      });
-      if (dto.reorderPoint !== undefined) {
-        adjusted.reorderPoint = dto.reorderPoint.toFixed(3);
-        const saved = await this.stockRepo.save(adjusted);
-        await this.lowStockService.evaluateAfterReorderPointChange(saved.id);
-        return this.findOne(saved.id, requestBaseUrl);
-      }
-      return this.findOne(adjusted.id, requestBaseUrl);
+    const adjusted = await this.stockService.adjust({
+      locationId: dto.locationId,
+      itemId: item.id,
+      quantityDelta: dto.quantity,
+      purchasePrice: dto.purchasePrice,
+      refType: StockMovementRefType.OPENING,
+      notes: 'Opening / add stock',
+    });
+    if (dto.reorderPoint !== undefined) {
+      adjusted.reorderPoint = dto.reorderPoint.toFixed(3);
+      const saved = await this.stockRepo.save(adjusted);
+      await this.lowStockService.evaluateAfterReorderPointChange(saved.id);
+      return this.findOne(saved.id, requestBaseUrl);
     }
-
-    const saved = await this.stockRepo.save(
-      this.stockRepo.create({
-        locationId: dto.locationId,
-        itemId: item.id,
-        quantity: dto.quantity.toFixed(3),
-        purchasePrice: dto.purchasePrice.toFixed(2),
-        reorderPoint:
-          dto.reorderPoint !== undefined ? dto.reorderPoint.toFixed(3) : null,
-      }),
-    );
-    await this.lowStockService.evaluateInitialStock(saved.id);
-    return this.findOne(saved.id, requestBaseUrl);
+    await this.lowStockService.evaluateInitialStock(adjusted.id);
+    return this.findOne(adjusted.id, requestBaseUrl);
   }
 
   async update(id: string, dto: UpdateInventoryDto, requestBaseUrl?: string) {
@@ -1055,6 +1050,45 @@ export class InventoryService {
     };
   }
 
+  async findMovements(
+    query: StockMovementListQueryDto,
+    requestBaseUrl?: string,
+  ) {
+    const qb = this.movementRepo
+      .createQueryBuilder('mv')
+      .leftJoinAndSelect('mv.item', 'item')
+      .leftJoinAndSelect('mv.location', 'location')
+      .leftJoinAndSelect('mv.createdBy', 'createdBy')
+      .orderBy('mv.created_at', 'DESC');
+
+    if (query.locationId) {
+      qb.andWhere('mv.location_id = :locationId', {
+        locationId: query.locationId,
+      });
+    }
+    if (query.itemId) {
+      qb.andWhere('mv.item_id = :itemId', { itemId: query.itemId });
+    }
+    if (query.refType) {
+      qb.andWhere('mv.ref_type = :refType', { refType: query.refType });
+    }
+    if (query.refId) {
+      qb.andWhere('mv.ref_id = :refId', { refId: query.refId });
+    }
+    applyIlikeSearch(qb, query.search, [
+      'mv.notes',
+      'item.description',
+      'item.sku',
+    ]);
+    applyDateRangeToQb(qb, 'mv.created_at', query.from, query.to);
+
+    const page = await paginatedQueryBuilder(qb, query.page, query.limit);
+    return {
+      ...page,
+      data: this.attachItemImageUrls(page.data, requestBaseUrl),
+    };
+  }
+
   async createAdjustment(dto: CreateStockAdjustmentDto, userId?: string) {
     await this.ensureLocation(dto.locationId);
     const item = await this.itemRepo.findOne({ where: { id: dto.itemId } });
@@ -1100,6 +1134,21 @@ export class InventoryService {
         }
       }
 
+      const saved = await adjustmentRepo.save(
+        adjustmentRepo.create({
+          locationId: dto.locationId,
+          itemId: dto.itemId,
+          direction: dto.direction,
+          quantity: Math.abs(dto.quantity).toFixed(3),
+          quantityBefore: quantityBefore.toFixed(3),
+          quantityAfter: (quantityBefore + delta).toFixed(3),
+          reason: dto.reason,
+          notes: dto.notes?.trim() || null,
+          reference: dto.reference?.trim() || null,
+          createdById: userId ?? null,
+        }),
+      );
+
       await this.stockService.adjust(
         {
           locationId: dto.locationId,
@@ -1109,25 +1158,14 @@ export class InventoryService {
             dto.direction === StockAdjustmentDirection.IN
               ? dto.purchasePrice
               : undefined,
+          refType: StockMovementRefType.STOCK_ADJUSTMENT,
+          refId: saved.id,
+          notes: dto.reason,
+          createdById: userId ?? null,
         },
         manager,
       );
 
-      const quantityAfter = quantityBefore + delta;
-      const saved = await adjustmentRepo.save(
-        adjustmentRepo.create({
-          locationId: dto.locationId,
-          itemId: dto.itemId,
-          direction: dto.direction,
-          quantity: Math.abs(dto.quantity).toFixed(3),
-          quantityBefore: quantityBefore.toFixed(3),
-          quantityAfter: quantityAfter.toFixed(3),
-          reason: dto.reason,
-          notes: dto.notes?.trim() || null,
-          reference: dto.reference?.trim() || null,
-          createdById: userId ?? null,
-        }),
-      );
       return { id: saved.id, quantityBefore };
     });
 

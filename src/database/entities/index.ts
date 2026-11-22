@@ -22,6 +22,7 @@ export { ExpenseCategory } from './expense-category.entity';
 export { Expense } from './expense.entity';
 export { Notification } from './notification.entity';
 export { StockAdjustment } from './stock-adjustment.entity';
+export { StockMovement } from './stock-movement.entity';
 export { Bom } from './bom.entity';
 export { BomLine } from './bom-line.entity';
 export { ProductionOrder } from './production-order.entity';
@@ -61,6 +62,7 @@ import { ExpenseCategory } from './expense-category.entity';
 import { Expense } from './expense.entity';
 import { Notification } from './notification.entity';
 import { StockAdjustment } from './stock-adjustment.entity';
+import { StockMovement } from './stock-movement.entity';
 import { Bom } from './bom.entity';
 import { BomLine } from './bom-line.entity';
 import { ProductionOrder } from './production-order.entity';
@@ -101,6 +103,7 @@ export const entities = [
   Expense,
   Notification,
   StockAdjustment,
+  StockMovement,
   Bom,
   BomLine,
   ProductionOrder,

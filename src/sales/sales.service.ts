@@ -16,6 +16,7 @@ import {
   DocumentStatus,
   PaymentMethod,
   ProductionOrderStatus,
+  StockMovementRefType,
 } from '../common/enums';
 import {
   computeCommissionAmount,
@@ -631,6 +632,10 @@ export class SalesService {
               locationId: oldLocationId,
               itemId: move.itemId,
               quantityDelta: move.quantity,
+              refType: StockMovementRefType.SALE,
+              refId: sale.id,
+              notes: 'Sale update — restore previous stock',
+              createdById: userId ?? null,
             },
             manager,
           );
@@ -788,6 +793,10 @@ export class SalesService {
               locationId,
               itemId: move.itemId,
               quantityDelta: -move.quantity,
+              refType: StockMovementRefType.SALE,
+              refId: sale.id,
+              notes: 'Sale',
+              createdById: userId ?? null,
             },
             manager,
           );
@@ -881,6 +890,10 @@ export class SalesService {
               locationId: sale.locationId,
               itemId: move.itemId,
               quantityDelta: move.quantity,
+              refType: StockMovementRefType.SALE,
+              refId: sale.id,
+              notes: 'Sale void — restore stock',
+              createdById: userId ?? null,
             },
             manager,
           );
@@ -1087,6 +1100,10 @@ export class SalesService {
               locationId: dto.locationId,
               itemId: move.itemId,
               quantityDelta: -move.quantity,
+              refType: StockMovementRefType.SALE,
+              refId: sale.id,
+              notes: 'Sale',
+              createdById: userId ?? null,
             },
             manager,
           );

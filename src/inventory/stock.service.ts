@@ -1,14 +1,27 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, Repository } from 'typeorm';
+import { StockMovementRefType } from '../common/enums';
 import { Item } from '../database/entities/item.entity';
 import { StockLevel } from '../database/entities/stock-level.entity';
+import { StockMovement } from '../database/entities/stock-movement.entity';
+
+export interface StockMovementRef {
+  refType?: StockMovementRefType | null;
+  refId?: string | null;
+  notes?: string | null;
+  createdById?: string | null;
+}
 
 export interface StockAdjustment {
   locationId: string;
   itemId: string;
   quantityDelta: number;
   purchasePrice?: number;
+  refType?: StockMovementRefType | null;
+  refId?: string | null;
+  notes?: string | null;
+  createdById?: string | null;
 }
 
 @Injectable()
@@ -18,12 +31,17 @@ export class StockService {
     private readonly stockRepo: Repository<StockLevel>,
     @InjectRepository(Item)
     private readonly itemRepo: Repository<Item>,
+    @InjectRepository(StockMovement)
+    private readonly movementRepo: Repository<StockMovement>,
   ) {}
 
   private repos(manager?: EntityManager) {
     return {
       stock: manager ? manager.getRepository(StockLevel) : this.stockRepo,
       item: manager ? manager.getRepository(Item) : this.itemRepo,
+      movement: manager
+        ? manager.getRepository(StockMovement)
+        : this.movementRepo,
     };
   }
 
@@ -49,7 +67,7 @@ export class StockService {
     adj: StockAdjustment,
     manager?: EntityManager,
   ): Promise<StockLevel> {
-    const { stock, item } = this.repos(manager);
+    const { stock, item, movement } = this.repos(manager);
     const catalogItem = await item.findOne({ where: { id: adj.itemId } });
     if (!catalogItem) throw new BadRequestException('Item not found');
 
@@ -78,7 +96,25 @@ export class StockService {
     }
 
     row.quantity = newQty.toFixed(3);
-    return stock.save(row);
+    const saved = await stock.save(row);
+
+    if (adj.quantityDelta !== 0) {
+      await movement.save(
+        movement.create({
+          locationId: adj.locationId,
+          itemId: adj.itemId,
+          quantityDelta: adj.quantityDelta.toFixed(3),
+          quantityBefore: currentQty.toFixed(3),
+          quantityAfter: newQty.toFixed(3),
+          refType: adj.refType ?? null,
+          refId: adj.refId ?? null,
+          notes: adj.notes?.trim() || null,
+          createdById: adj.createdById ?? null,
+        }),
+      );
+    }
+
+    return saved;
   }
 
   async transfer(
@@ -87,6 +123,7 @@ export class StockService {
     itemId: string,
     quantity: number,
     manager?: EntityManager,
+    ref?: StockMovementRef,
   ): Promise<void> {
     if (quantity <= 0) {
       throw new BadRequestException('Quantity must be positive');
@@ -101,9 +138,20 @@ export class StockService {
     }
 
     const purchasePrice = fromStock ? parseFloat(fromStock.purchasePrice) : 0;
+    const baseRef = {
+      refType: ref?.refType ?? StockMovementRefType.STOCK_TRANSFER,
+      refId: ref?.refId ?? null,
+      createdById: ref?.createdById ?? null,
+    };
 
     await this.adjust(
-      { locationId: fromLocationId, itemId, quantityDelta: -quantity },
+      {
+        locationId: fromLocationId,
+        itemId,
+        quantityDelta: -quantity,
+        ...baseRef,
+        notes: ref?.notes?.trim() || 'Transfer out',
+      },
       manager,
     );
     await this.adjust(
@@ -112,6 +160,8 @@ export class StockService {
         itemId,
         quantityDelta: quantity,
         purchasePrice,
+        ...baseRef,
+        notes: ref?.notes?.trim() || 'Transfer in',
       },
       manager,
     );

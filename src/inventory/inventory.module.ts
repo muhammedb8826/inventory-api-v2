@@ -6,6 +6,7 @@ import { Location } from '../database/entities/location.entity';
 import { ProductAttributeValue } from '../database/entities/product-attribute-value.entity';
 import { StockAdjustment } from '../database/entities/stock-adjustment.entity';
 import { StockLevel } from '../database/entities/stock-level.entity';
+import { StockMovement } from '../database/entities/stock-movement.entity';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { UomModule } from '../uom/uom.module';
 import { InventoryController } from './inventory.controller';
@@ -19,6 +20,7 @@ import { StockService } from './stock.service';
       Item,
       Location,
       StockAdjustment,
+      StockMovement,
       ItemAttributeValue,
       ProductAttributeValue,
     ]),

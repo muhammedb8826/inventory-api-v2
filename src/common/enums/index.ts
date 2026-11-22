@@ -85,6 +85,16 @@ export enum StockAdjustmentDirection {
   OUT = 'out',
 }
 
+/** Source document for a stock ledger movement. */
+export enum StockMovementRefType {
+  SALE = 'sale',
+  PURCHASE = 'purchase',
+  STOCK_TRANSFER = 'stock_transfer',
+  STOCK_ADJUSTMENT = 'stock_adjustment',
+  PRODUCTION = 'production',
+  OPENING = 'opening',
+}
+
 /** Catalog classification for manufacturing / BOM. */
 export enum ItemType {
   RAW = 'RAW',
