@@ -12,6 +12,7 @@ import { Bom } from './bom.entity';
 import { Item } from './item.entity';
 import { Location } from './location.entity';
 import { ProductionOrderLine } from './production-order-line.entity';
+import { Sale } from './sale.entity';
 import { User } from './user.entity';
 import { UuidBaseEntity } from './uuid-base.entity';
 
@@ -25,6 +26,10 @@ export class ProductionOrder extends UuidBaseEntity {
 
   @Column({ name: 'location_id', type: 'uuid' })
   locationId: string;
+
+  /** Optional link when created from a sale stock shortage (MTO). */
+  @Column({ name: 'sale_id', type: 'uuid', nullable: true })
+  saleId: string | null;
 
   @Column({
     name: 'quantity_planned',
@@ -74,6 +79,10 @@ export class ProductionOrder extends UuidBaseEntity {
   @ManyToOne(() => Location)
   @JoinColumn({ name: 'location_id' })
   location: Location;
+
+  @ManyToOne(() => Sale, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'sale_id' })
+  sale: Sale | null;
 
   @ManyToOne(() => User)
   @JoinColumn({ name: 'created_by_id' })

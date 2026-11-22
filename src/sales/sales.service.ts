@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -14,6 +15,7 @@ import {
   DEFAULT_COMMISSION_PERCENT,
   DocumentStatus,
   PaymentMethod,
+  ProductionOrderStatus,
 } from '../common/enums';
 import {
   computeCommissionAmount,
@@ -29,6 +31,7 @@ import { SalesListQueryDto } from './dto/sales-list-query.dto';
 import { BankLedgerService } from '../banks/bank-ledger.service';
 import { BanksService } from '../banks/banks.service';
 import { CustomerCredit } from '../database/entities/customer-credit.entity';
+import { Item } from '../database/entities/item.entity';
 import { SaleLine } from '../database/entities/sale-line.entity';
 import { SaleLineComponent } from '../database/entities/sale-line-component.entity';
 import { Sale } from '../database/entities/sale.entity';
@@ -42,6 +45,7 @@ import {
 import { CommissionSummaryQueryDto } from './dto/commission-summary-query.dto';
 import { CreateSaleDto, SaleLineDto } from './dto/sale.dto';
 import { UpdateSaleDto } from './dto/update-sale.dto';
+import { ProductionService } from '../production/production.service';
 import { KitSaleService } from './kit-sale.service';
 import { UomConversionService } from '../uom/uom-conversion.service';
 import { resolveDimensionalLine } from '../uom/resolve-dimensional-line';
@@ -84,6 +88,7 @@ export class SalesService {
     private readonly lowStockService: LowStockService,
     private readonly uomConversion: UomConversionService,
     private readonly kitSale: KitSaleService,
+    private readonly productionService: ProductionService,
   ) {}
 
   async findAll(query: SalesListQueryDto) {
@@ -167,10 +172,149 @@ export class SalesService {
         },
         credit: true,
         soldByUser: true,
+        productionOrders: {
+          finishedItem: true,
+          bom: true,
+        },
       },
     });
     if (!sale) throw new NotFoundException('Sale not found');
+    if (sale.productionOrders?.length) {
+      sale.productionOrders.sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      );
+    }
     return sale;
+  }
+
+  /**
+   * Stock check for sales.
+   * - Hard shortage without Manufacture BoM → 400 (unless allowNegative).
+   * - Shortage with Manufacture BoM and !proceedWithProduction → 409 with
+   *   productionSuggestions so the FE can confirm draft POs.
+   * - proceedWithProduction → allow short + caller creates draft POs.
+   */
+  private async checkSaleStockAvailability(
+    locationId: string,
+    resolvedLines: {
+      itemId: string;
+      isKit: boolean;
+      moves: { itemId: string; quantity: number }[];
+    }[],
+    allowNegative: boolean,
+    proceedWithProduction: boolean,
+    manager: EntityManager,
+  ): Promise<string[]> {
+    type MtoBom = Awaited<
+      ReturnType<ProductionService['findActiveManufactureBom']>
+    >;
+    const mtoByItem = new Map<string, NonNullable<MtoBom>>();
+    for (const line of resolvedLines) {
+      if (line.isKit) continue;
+      const bom = await this.productionService.findActiveManufactureBom(
+        line.itemId,
+        manager,
+      );
+      if (bom?.lines?.length) mtoByItem.set(line.itemId, bom);
+    }
+
+    const moves = this.kitSale.mergeMoves(
+      resolvedLines.flatMap((l) => l.moves),
+    );
+    const itemRepo = manager.getRepository(Item);
+    const warnings: string[] = [];
+    const productionSuggestions: {
+      itemId: string;
+      itemDescription: string;
+      bomId: string;
+      bomName: string;
+      locationId: string;
+      quantityNeeded: number;
+      available: number;
+      shortage: number;
+    }[] = [];
+
+    for (const move of moves) {
+      const available = await this.stockService.getQuantity(
+        locationId,
+        move.itemId,
+        manager,
+      );
+      if (available >= move.quantity) continue;
+
+      const catalogItem = await itemRepo.findOne({
+        where: { id: move.itemId },
+      });
+      const label = catalogItem?.description ?? move.itemId;
+      const msg = `${label}: requested ${move.quantity}, available ${available}`;
+      const bom = mtoByItem.get(move.itemId);
+
+      if (bom) {
+        const shortage = move.quantity - available;
+        productionSuggestions.push({
+          itemId: move.itemId,
+          itemDescription: label,
+          bomId: bom.id,
+          bomName: bom.name,
+          locationId,
+          quantityNeeded: move.quantity,
+          available,
+          shortage,
+        });
+        if (proceedWithProduction) {
+          warnings.push(
+            `${msg} — draft production order created for shortage`,
+          );
+          continue;
+        }
+        if (allowNegative) {
+          warnings.push(msg);
+          continue;
+        }
+        continue;
+      }
+
+      if (!allowNegative) {
+        throw new BadRequestException(`Stock unavailable: ${msg}`);
+      }
+      warnings.push(msg);
+    }
+
+    if (
+      productionSuggestions.length > 0 &&
+      !proceedWithProduction &&
+      !allowNegative
+    ) {
+      throw new ConflictException({
+        statusCode: 409,
+        error: 'Conflict',
+        code: 'PRODUCTION_REQUIRED',
+        message:
+          'Insufficient stock. Create draft production orders for manufacturable items?',
+        productionSuggestions,
+      });
+    }
+
+    return warnings;
+  }
+
+  private async notifySaleProductionDrafts(
+    sale: Sale,
+    actorUserId?: string,
+  ) {
+    const drafts = (sale.productionOrders ?? []).filter(
+      (po) => po.status === ProductionOrderStatus.DRAFT,
+    );
+    for (const po of drafts) {
+      await this.notifications.onProductionOrderDrafted({
+        productionOrderId: po.id,
+        quantityPlanned: po.quantityPlanned,
+        finishedItemDescription: po.finishedItem?.description,
+        saleId: sale.id,
+        actorUserId,
+      });
+    }
   }
 
   async commissionSummary(query: CommissionSummaryQueryDto) {
@@ -417,6 +561,7 @@ export class SalesService {
     }
 
     let stockWarnings: string[] = [];
+    let didProceedWithProduction = false;
     const stockChanges: StockQuantityChange[] = [];
 
     await this.dataSource.transaction(async (manager) => {
@@ -527,12 +672,17 @@ export class SalesService {
 
       const subtotal = resolvedLines.reduce((sum, l) => sum + l.dim.lineTotal, 0);
 
-      stockWarnings = await this.stockService.checkAvailability(
+      const proceedWithProduction = dto.proceedWithProduction === true;
+      didProceedWithProduction = proceedWithProduction;
+      stockWarnings = await this.checkSaleStockAvailability(
         locationId,
-        this.kitSale.mergeMoves(
-          resolvedLines.flatMap((l) => l.explosion.moves),
-        ),
+        resolvedLines.map(({ line, explosion }) => ({
+          itemId: line.itemId,
+          isKit: explosion.isKit,
+          moves: explosion.moves,
+        })),
         allowNeg,
+        proceedWithProduction,
         manager,
       );
 
@@ -610,6 +760,22 @@ export class SalesService {
 
       await saleRepo.save(sale);
 
+      if (proceedWithProduction) {
+        await this.productionService.syncSaleShortageOrders(
+          {
+            saleId: sale.id,
+            locationId,
+            lines: resolvedLines.map(({ line, dim, explosion }) => ({
+              itemId: line.itemId,
+              quantityNeeded: dim.stockQuantity,
+              isKit: explosion.isKit,
+            })),
+            userId,
+          },
+          manager,
+        );
+      }
+
       for (const { explosion } of resolvedLines) {
         for (const move of explosion.moves) {
           const previousQuantity = await this.stockService.getQuantity(
@@ -675,6 +841,9 @@ export class SalesService {
       stockWarnings: stockWarnings.length ? stockWarnings : undefined,
       creditDueDate: sale.credit?.dueDate ?? null,
     });
+    if (didProceedWithProduction) {
+      await this.notifySaleProductionDrafts(sale, userId);
+    }
     if (stockWarnings.length) {
       return { ...sale, stockWarnings };
     }
@@ -734,6 +903,8 @@ export class SalesService {
       sale.status = DocumentStatus.VOIDED;
       sale.voidedAt = new Date();
       await saleRepo.save(sale);
+
+      await this.productionService.cancelDraftOrdersForSale(sale.id, manager);
     });
 
     return this.findOne(id);
@@ -810,12 +981,16 @@ export class SalesService {
         resolvedLines.push({ dto: line, dim, explosion });
       }
 
-      const stockWarnings = await this.stockService.checkAvailability(
+      const proceedWithProduction = dto.proceedWithProduction === true;
+      const stockWarnings = await this.checkSaleStockAvailability(
         dto.locationId,
-        this.kitSale.mergeMoves(
-          resolvedLines.flatMap((l) => l.explosion.moves),
-        ),
+        resolvedLines.map(({ dto: line, explosion }) => ({
+          itemId: line.itemId,
+          isKit: explosion.isKit,
+          moves: explosion.moves,
+        })),
         allowNegative,
+        proceedWithProduction,
         manager,
       );
 
@@ -884,6 +1059,22 @@ export class SalesService {
         }),
       );
 
+      if (proceedWithProduction) {
+        await this.productionService.createFromSaleShortages(
+          {
+            saleId: sale.id,
+            locationId: dto.locationId,
+            lines: resolvedLines.map(({ dto: line, dim, explosion }) => ({
+              itemId: line.itemId,
+              quantityNeeded: dim.stockQuantity,
+              isKit: explosion.isKit,
+            })),
+            userId,
+          },
+          manager,
+        );
+      }
+
       for (const { explosion } of resolvedLines) {
         for (const move of explosion.moves) {
           const previousQuantity = await this.stockService.getQuantity(
@@ -944,6 +1135,7 @@ export class SalesService {
         soldByUserId,
         subtotal: subtotal.toFixed(2),
         creditDueDate: dto.creditDueDate ?? null,
+        proceedWithProduction,
       };
     });
 
@@ -957,6 +1149,9 @@ export class SalesService {
       stockWarnings: result.stockWarnings,
       creditDueDate: result.creditDueDate,
     });
+    if (result.proceedWithProduction) {
+      await this.notifySaleProductionDrafts(sale, userId);
+    }
 
     return {
       ...sale,

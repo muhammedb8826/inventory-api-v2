@@ -446,6 +446,37 @@ export class NotificationsService {
     );
   }
 
+  /** Notify production staff when a draft production order is created. */
+  async onProductionOrderDrafted(params: {
+    productionOrderId: string;
+    quantityPlanned: string;
+    finishedItemDescription?: string | null;
+    saleId?: string | null;
+    actorUserId?: string | null;
+  }) {
+    const itemLabel =
+      params.finishedItemDescription?.trim() || 'finished item';
+    const fromSale = params.saleId
+      ? ` for sale ${params.saleId.slice(0, 8)}`
+      : '';
+    await this.notifyUsersWithPermission(
+      'production.read',
+      {
+        module: 'production',
+        type: NotificationType.PRODUCTION,
+        title: 'Draft production order',
+        message: `Draft production for ${itemLabel} × ${params.quantityPlanned}${fromSale}. Release to start production.`,
+        entityType: 'production_order',
+        entityId: params.productionOrderId,
+        metadata: {
+          saleId: params.saleId ?? null,
+          quantityPlanned: params.quantityPlanned,
+        },
+      },
+      params.actorUserId ? [params.actorUserId] : [],
+    );
+  }
+
   private async findOwned(userId: string, id: string) {
     const notification = await this.repo.findOne({ where: { id, userId } });
     if (!notification) {

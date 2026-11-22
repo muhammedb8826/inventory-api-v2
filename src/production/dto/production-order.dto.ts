@@ -29,6 +29,11 @@ export class CreateProductionOrderDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  /** Link to originating sale when creating for MTO shortage. */
+  @IsOptional()
+  @IsUUID()
+  saleId?: string;
 }
 
 export class IssueProductionLineDto {
@@ -74,6 +79,10 @@ export class ProductionOrderListQueryDto extends DateRangeQueryDto {
   @IsOptional()
   @IsUUID()
   bomId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  saleId?: string;
 
   @IsOptional()
   @IsEnum(ProductionOrderStatus)

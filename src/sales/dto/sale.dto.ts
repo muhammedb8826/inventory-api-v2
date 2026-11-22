@@ -83,6 +83,14 @@ export class CreateSaleDto {
   @IsBoolean()
   allowNegativeStock?: boolean;
 
+  /**
+   * Operator confirmed creating draft production orders for Manufacture BoM
+   * shortages (from the FE confirmation dialog).
+   */
+  @IsOptional()
+  @IsBoolean()
+  proceedWithProduction?: boolean;
+
   @IsOptional()
   @IsString()
   notes?: string;

@@ -9,6 +9,7 @@ import { SaleLineComponent } from '../database/entities/sale-line-component.enti
 import { User } from '../database/entities/user.entity';
 import { InventoryModule } from '../inventory/inventory.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { ProductionModule } from '../production/production.module';
 import { UomModule } from '../uom/uom.module';
 import { KitSaleService } from './kit-sale.service';
 import { SalesController } from './sales.controller';
@@ -28,6 +29,7 @@ import { SalesService } from './sales.service';
     BanksModule,
     NotificationsModule,
     UomModule,
+    ProductionModule,
   ],
   controllers: [SalesController],
   providers: [SalesService, KitSaleService],

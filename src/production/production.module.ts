@@ -25,5 +25,6 @@ import { ProductionService } from './production.service';
   ],
   controllers: [ProductionController],
   providers: [ProductionService, ManufactureExplodeService],
+  exports: [ProductionService],
 })
 export class ProductionModule {}

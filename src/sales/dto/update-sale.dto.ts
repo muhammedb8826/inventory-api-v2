@@ -37,6 +37,11 @@ export class UpdateSaleDto {
   @IsBoolean()
   allowNegativeStock?: boolean;
 
+  /** Operator confirmed draft production orders for Manufacture BoM shortages. */
+  @IsOptional()
+  @IsBoolean()
+  proceedWithProduction?: boolean;
+
   @IsOptional()
   @IsString()
   notes?: string;

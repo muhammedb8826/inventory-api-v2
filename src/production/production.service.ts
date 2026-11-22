@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, Repository } from 'typeorm';
+import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
 import { BomType, ProductionOrderStatus } from '../common/enums';
 import {
   applyDateRangeToQb,
@@ -18,6 +18,7 @@ import { ProductionOrderLine } from '../database/entities/production-order-line.
 import { ProductionOrder } from '../database/entities/production-order.entity';
 import { StockService } from '../inventory/stock.service';
 import { LowStockService } from '../notifications/low-stock.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import {
   CompleteProductionDto,
   CreateProductionOrderDto,
@@ -25,6 +26,13 @@ import {
   ProductionOrderListQueryDto,
 } from './dto/production-order.dto';
 import { ManufactureExplodeService } from './manufacture-explode.service';
+
+export type SaleShortageLine = {
+  itemId: string;
+  quantityNeeded: number;
+  /** Kit sales deduct components — skip MTO for the kit parent. */
+  isKit: boolean;
+};
 
 @Injectable()
 export class ProductionService {
@@ -41,6 +49,7 @@ export class ProductionService {
     private readonly dataSource: DataSource,
     private readonly stockService: StockService,
     private readonly lowStockService: LowStockService,
+    private readonly notifications: NotificationsService,
     private readonly manufactureExplode: ManufactureExplodeService,
   ) {}
 
@@ -68,6 +77,9 @@ export class ProductionService {
     if (query.bomId) {
       qb.andWhere('po.bom_id = :bomId', { bomId: query.bomId });
     }
+    if (query.saleId) {
+      qb.andWhere('po.sale_id = :saleId', { saleId: query.saleId });
+    }
     if (query.status) {
       qb.andWhere('po.status = :status', { status: query.status });
     }
@@ -90,6 +102,7 @@ export class ProductionService {
         location: true,
         bom: true,
         createdBy: true,
+        sale: { customer: true },
         lines: { componentItem: { stockUom: true } },
       },
     });
@@ -137,6 +150,7 @@ export class ProductionService {
         bomId: bom.id,
         finishedItemId: stockableFinishedId,
         locationId: dto.locationId,
+        saleId: dto.saleId ?? null,
         quantityPlanned: dto.quantityPlanned.toFixed(3),
         quantityCompleted: '0.000',
         status: ProductionOrderStatus.DRAFT,
@@ -152,7 +166,178 @@ export class ProductionService {
       }),
     );
 
-    return this.findOne(order.id);
+    const created = await this.findOne(order.id);
+    await this.notifications.onProductionOrderDrafted({
+      productionOrderId: created.id,
+      quantityPlanned: created.quantityPlanned,
+      finishedItemDescription: created.finishedItem?.description,
+      saleId: created.saleId,
+      actorUserId: userId,
+    });
+    return created;
+  }
+
+  /**
+   * Prefer variant-specific Manufacture BoM, then product-level, then parent
+   * product BoM when the sold item is a variant.
+   */
+  async findActiveManufactureBom(
+    itemId: string,
+    manager?: EntityManager,
+  ): Promise<Bom | null> {
+    const bomRepo = manager ? manager.getRepository(Bom) : this.bomRepo;
+    const itemRepo = manager ? manager.getRepository(Item) : this.itemRepo;
+
+    const variantBom = await bomRepo.findOne({
+      where: {
+        bomType: BomType.MANUFACTURE,
+        isActive: true,
+        variantItemId: itemId,
+      },
+      relations: { lines: true, finishedItem: true },
+      order: { updatedAt: 'DESC' },
+    });
+    if (variantBom?.lines?.length) return variantBom;
+
+    const finishedBom = await bomRepo.findOne({
+      where: {
+        bomType: BomType.MANUFACTURE,
+        isActive: true,
+        finishedItemId: itemId,
+        variantItemId: IsNull(),
+      },
+      relations: { lines: true, finishedItem: true },
+      order: { updatedAt: 'DESC' },
+    });
+    if (finishedBom?.lines?.length) return finishedBom;
+
+    const catalogItem = await itemRepo.findOne({ where: { id: itemId } });
+    if (catalogItem?.parentItemId) {
+      const parentBom = await bomRepo.findOne({
+        where: {
+          bomType: BomType.MANUFACTURE,
+          isActive: true,
+          finishedItemId: catalogItem.parentItemId,
+          variantItemId: IsNull(),
+        },
+        relations: { lines: true, finishedItem: true },
+        order: { updatedAt: 'DESC' },
+      });
+      if (parentBom?.lines?.length) return parentBom;
+    }
+
+    return null;
+  }
+
+  /**
+   * Cancel open DRAFT production orders linked to a sale (e.g. before re-create
+   * on sale update, or when voiding the sale).
+   */
+  async cancelDraftOrdersForSale(
+    saleId: string,
+    manager?: EntityManager,
+  ): Promise<number> {
+    const orderRepo = manager
+      ? manager.getRepository(ProductionOrder)
+      : this.orderRepo;
+    const drafts = await orderRepo.find({
+      where: {
+        saleId,
+        status: ProductionOrderStatus.DRAFT,
+      },
+    });
+    if (!drafts.length) return 0;
+    for (const order of drafts) {
+      order.status = ProductionOrderStatus.CANCELLED;
+    }
+    await orderRepo.save(drafts);
+    return drafts.length;
+  }
+
+  /**
+   * For each non-kit sale line short on finished stock that has an active
+   * Manufacture BoM, create a DRAFT production order linked to the sale.
+   * Call before stock is deducted so available qty is still pre-sale.
+   */
+  async createFromSaleShortages(
+    params: {
+      saleId: string;
+      locationId: string;
+      lines: SaleShortageLine[];
+      userId?: string;
+    },
+    manager?: EntityManager,
+  ): Promise<ProductionOrder[]> {
+    const orderRepo = manager
+      ? manager.getRepository(ProductionOrder)
+      : this.orderRepo;
+    const created: ProductionOrder[] = [];
+    const shortRef = params.saleId.slice(0, 8);
+
+    for (const line of params.lines) {
+      if (line.isKit) continue;
+      if (!Number.isFinite(line.quantityNeeded) || line.quantityNeeded <= 0) {
+        continue;
+      }
+
+      const available = await this.stockService.getQuantity(
+        params.locationId,
+        line.itemId,
+        manager,
+      );
+      const shortage = line.quantityNeeded - available;
+      if (shortage < 0.001) continue;
+
+      const bom = await this.findActiveManufactureBom(line.itemId, manager);
+      if (!bom?.lines?.length) continue;
+
+      const exploded = await this.manufactureExplode.explodeRootBom(
+        bom,
+        shortage,
+        manager,
+      );
+      if (!exploded.length) continue;
+
+      const order = await orderRepo.save(
+        orderRepo.create({
+          bomId: bom.id,
+          finishedItemId: line.itemId,
+          locationId: params.locationId,
+          saleId: params.saleId,
+          quantityPlanned: shortage.toFixed(3),
+          quantityCompleted: '0.000',
+          status: ProductionOrderStatus.DRAFT,
+          notes: `Auto-created from sale ${shortRef} shortage`,
+          createdById: params.userId ?? null,
+          lines: exploded.map((row) =>
+            Object.assign(new ProductionOrderLine(), {
+              componentItemId: row.componentItemId,
+              quantityRequired: row.quantityRequired.toFixed(3),
+              quantityIssued: '0.000',
+            }),
+          ),
+        }),
+      );
+      created.push(order);
+    }
+
+    return created;
+  }
+
+  /**
+   * Replace DRAFT shortage orders for a sale (cancel old drafts, create anew).
+   */
+  async syncSaleShortageOrders(
+    params: {
+      saleId: string;
+      locationId: string;
+      lines: SaleShortageLine[];
+      userId?: string;
+    },
+    manager?: EntityManager,
+  ): Promise<ProductionOrder[]> {
+    await this.cancelDraftOrdersForSale(params.saleId, manager);
+    return this.createFromSaleShortages(params, manager);
   }
 
   async release(id: string) {

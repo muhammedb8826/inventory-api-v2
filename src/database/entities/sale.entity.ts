@@ -17,6 +17,7 @@ import { BankAccount } from './bank-account.entity';
 import { Customer } from './customer.entity';
 import { CustomerCredit } from './customer-credit.entity';
 import { Location } from './location.entity';
+import { ProductionOrder } from './production-order.entity';
 import { SaleLine } from './sale-line.entity';
 import { User } from './user.entity';
 import { UuidBaseEntity } from './uuid-base.entity';
@@ -121,6 +122,9 @@ export class Sale extends UuidBaseEntity {
 
   @OneToOne(() => CustomerCredit, (credit) => credit.sale)
   credit: CustomerCredit | null;
+
+  @OneToMany(() => ProductionOrder, (po) => po.sale)
+  productionOrders: ProductionOrder[];
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

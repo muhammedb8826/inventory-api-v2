@@ -127,6 +127,7 @@ export enum NotificationType {
   EXPENSE = 'EXPENSE',
   SYSTEM = 'SYSTEM',
   INQUIRY = 'INQUIRY',
+  PRODUCTION = 'PRODUCTION',
 }
 
 /** How a customer inquiry entered the system. */
