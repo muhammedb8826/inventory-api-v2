@@ -104,12 +104,12 @@ export const PERMISSION_DEFINITIONS = [
   { code: 'messages.write', name: 'Send staff messages', module: 'messages' },
   {
     code: 'settings.read',
-    name: 'View site settings / branding',
+    name: 'View company branding settings',
     module: 'settings',
   },
   {
     code: 'settings.write',
-    name: 'Manage site settings / branding',
+    name: 'Manage company branding settings',
     module: 'settings',
   },
   { code: 'uom.read', name: 'View units of measure', module: 'uom' },

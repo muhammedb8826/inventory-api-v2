@@ -8,7 +8,7 @@ function requestBaseUrl(req: Request) {
   return host ? `${proto}://${host}` : undefined;
 }
 
-/** Unauthenticated branding for the public / marketing site. */
+/** Unauthenticated branding for login screen and print letterheads. */
 @Controller('public/branding')
 export class PublicBrandingController {
   constructor(private readonly settings: SettingsService) {}

@@ -24,7 +24,11 @@ import {
   TAX_SETTINGS_ID,
   TaxSettings,
 } from '../database/entities/tax-settings.entity';
-import { BrandingResponse, UpdateBrandingDto } from './dto/branding.dto';
+import {
+  BrandingResponse,
+  LogoVariant,
+  UpdateBrandingDto,
+} from './dto/branding.dto';
 import {
   CommissionDefaultsView,
   CommissionSettingsView,
@@ -78,12 +82,43 @@ export class SettingsService implements OnModuleInit {
         "id" uuid NOT NULL,
         "app_name" character varying(80) NOT NULL DEFAULT 'Stock',
         "hero_image_path" character varying(500),
+        "logo_light_path" character varying(500),
+        "logo_dark_path" character varying(500),
         "headline" character varying(160),
         "supporting_text" character varying(400),
+        "legal_name" character varying(160),
+        "tagline" character varying(200),
+        "email" character varying(160),
+        "phone" character varying(64),
+        "website" character varying(200),
+        "address" character varying(500),
+        "tax_id" character varying(64),
+        "registration_number" character varying(64),
+        "invoice_header_text" character varying(400),
+        "invoice_footer_text" text,
+        "terms_and_conditions" text,
+        "bank_details" text,
         "created_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
         "updated_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
         CONSTRAINT "PK_site_branding" PRIMARY KEY ("id")
       )
+    `);
+    await this.dataSource.query(`
+      ALTER TABLE "site_branding"
+      ADD COLUMN IF NOT EXISTS "logo_light_path" character varying(500),
+      ADD COLUMN IF NOT EXISTS "logo_dark_path" character varying(500),
+      ADD COLUMN IF NOT EXISTS "legal_name" character varying(160),
+      ADD COLUMN IF NOT EXISTS "tagline" character varying(200),
+      ADD COLUMN IF NOT EXISTS "email" character varying(160),
+      ADD COLUMN IF NOT EXISTS "phone" character varying(64),
+      ADD COLUMN IF NOT EXISTS "website" character varying(200),
+      ADD COLUMN IF NOT EXISTS "address" character varying(500),
+      ADD COLUMN IF NOT EXISTS "tax_id" character varying(64),
+      ADD COLUMN IF NOT EXISTS "registration_number" character varying(64),
+      ADD COLUMN IF NOT EXISTS "invoice_header_text" character varying(400),
+      ADD COLUMN IF NOT EXISTS "invoice_footer_text" text,
+      ADD COLUMN IF NOT EXISTS "terms_and_conditions" text,
+      ADD COLUMN IF NOT EXISTS "bank_details" text
     `);
   }
 
@@ -96,8 +131,22 @@ export class SettingsService implements OnModuleInit {
           this.repo.create({
             appName: 'Stock',
             heroImagePath: null,
+            logoLightPath: null,
+            logoDarkPath: null,
             headline: null,
             supportingText: null,
+            legalName: null,
+            tagline: null,
+            email: null,
+            phone: null,
+            website: null,
+            address: null,
+            taxId: null,
+            registrationNumber: null,
+            invoiceHeaderText: null,
+            invoiceFooterText: null,
+            termsAndConditions: null,
+            bankDetails: null,
           }),
         );
       }
@@ -119,7 +168,7 @@ export class SettingsService implements OnModuleInit {
     return row[0];
   }
 
-  private absoluteHeroUrl(
+  private absoluteAssetUrl(
     path: string | null,
     requestBaseUrl?: string,
   ): string | null {
@@ -131,15 +180,36 @@ export class SettingsService implements OnModuleInit {
     return `${base}${path.startsWith('/') ? path : `/${path}`}`;
   }
 
+  private resolvedLightPath(row: SiteBranding): string | null {
+    return row.logoLightPath || row.heroImagePath || null;
+  }
+
   private toResponse(
     row: SiteBranding,
     requestBaseUrl?: string,
   ): BrandingResponse {
+    const lightUrl = this.absoluteAssetUrl(
+      this.resolvedLightPath(row),
+      requestBaseUrl,
+    );
+    const darkUrl = this.absoluteAssetUrl(row.logoDarkPath, requestBaseUrl);
     return {
       appName: row.appName,
-      heroImageUrl: this.absoluteHeroUrl(row.heroImagePath, requestBaseUrl),
-      headline: row.headline,
-      supportingText: row.supportingText,
+      logoLightUrl: lightUrl,
+      logoDarkUrl: darkUrl,
+      logoUrl: lightUrl,
+      legalName: row.legalName,
+      tagline: row.tagline,
+      email: row.email,
+      phone: row.phone,
+      website: row.website,
+      address: row.address,
+      taxId: row.taxId,
+      registrationNumber: row.registrationNumber,
+      invoiceHeaderText: row.invoiceHeaderText,
+      invoiceFooterText: row.invoiceFooterText,
+      termsAndConditions: row.termsAndConditions,
+      bankDetails: row.bankDetails,
       updatedAt: row.updatedAt.toISOString(),
     };
   }
@@ -147,6 +217,13 @@ export class SettingsService implements OnModuleInit {
   async getBranding(requestBaseUrl?: string) {
     const row = await this.getRow();
     return this.toResponse(row, requestBaseUrl);
+  }
+
+  private emptyToNull(value: string | null | undefined): string | null {
+    if (value === undefined) return null;
+    if (value === null) return null;
+    const trimmed = value.trim();
+    return trimmed.length ? trimmed : null;
   }
 
   async updateBranding(dto: UpdateBrandingDto, requestBaseUrl?: string) {
@@ -157,22 +234,37 @@ export class SettingsService implements OnModuleInit {
       if (!name) throw new BadRequestException('appName cannot be empty');
       row.appName = name;
     }
-    if (dto.headline !== undefined) {
-      const v = dto.headline.trim();
-      row.headline = v.length ? v : null;
+    if (dto.legalName !== undefined) row.legalName = this.emptyToNull(dto.legalName);
+    if (dto.tagline !== undefined) row.tagline = this.emptyToNull(dto.tagline);
+    if (dto.email !== undefined) row.email = this.emptyToNull(dto.email);
+    if (dto.phone !== undefined) row.phone = this.emptyToNull(dto.phone);
+    if (dto.website !== undefined) row.website = this.emptyToNull(dto.website);
+    if (dto.address !== undefined) row.address = this.emptyToNull(dto.address);
+    if (dto.taxId !== undefined) row.taxId = this.emptyToNull(dto.taxId);
+    if (dto.registrationNumber !== undefined) {
+      row.registrationNumber = this.emptyToNull(dto.registrationNumber);
     }
-    if (dto.supportingText !== undefined) {
-      const v = dto.supportingText.trim();
-      row.supportingText = v.length ? v : null;
+    if (dto.invoiceHeaderText !== undefined) {
+      row.invoiceHeaderText = this.emptyToNull(dto.invoiceHeaderText);
+    }
+    if (dto.invoiceFooterText !== undefined) {
+      row.invoiceFooterText = this.emptyToNull(dto.invoiceFooterText);
+    }
+    if (dto.termsAndConditions !== undefined) {
+      row.termsAndConditions = this.emptyToNull(dto.termsAndConditions);
+    }
+    if (dto.bankDetails !== undefined) {
+      row.bankDetails = this.emptyToNull(dto.bankDetails);
     }
 
     await this.repo.save(row);
     return this.toResponse(row, requestBaseUrl);
   }
 
-  async uploadHeroImage(
+  async uploadLogo(
     file: Express.Multer.File | undefined,
     requestBaseUrl?: string,
+    variant: LogoVariant = 'light',
   ) {
     if (!file) throw new BadRequestException('File is required');
     if (file.size > MAX_BYTES) {
@@ -180,7 +272,9 @@ export class SettingsService implements OnModuleInit {
     }
     const ext = ALLOWED_MIME[file.mimetype];
     if (!ext) {
-      throw new BadRequestException('Image must be JPEG, PNG, WebP, or GIF');
+      throw new BadRequestException(
+        'Logo must be PNG (recommended), JPEG, WebP, or GIF',
+      );
     }
 
     if (!existsSync(this.uploadDir)) {
@@ -188,26 +282,60 @@ export class SettingsService implements OnModuleInit {
     }
 
     const row = await this.getRow();
-    this.deleteHeroFile(row.heroImagePath);
+    const previous =
+      variant === 'dark'
+        ? row.logoDarkPath
+        : this.resolvedLightPath(row);
 
-    const filename = `hero-${randomUUID()}${ext}`;
+    const filename = `logo-${variant}-${randomUUID()}${ext}`;
     const diskPath = join(this.uploadDir, filename);
     writeFileSync(diskPath, file.buffer);
+    const stored = `/uploads/branding/${filename}`;
 
-    row.heroImagePath = `/uploads/branding/${filename}`;
+    if (variant === 'dark') {
+      row.logoDarkPath = stored;
+    } else {
+      row.logoLightPath = stored;
+      row.heroImagePath = stored;
+    }
+
     await this.repo.save(row);
+    if (previous && previous !== stored) this.deleteLogoFile(previous);
     return this.toResponse(row, requestBaseUrl);
   }
 
-  async clearHeroImage(requestBaseUrl?: string) {
+  /** @deprecated Prefer uploadLogo */
+  async uploadHeroImage(
+    file: Express.Multer.File | undefined,
+    requestBaseUrl?: string,
+  ) {
+    return this.uploadLogo(file, requestBaseUrl, 'light');
+  }
+
+  async clearLogo(
+    requestBaseUrl?: string,
+    variant: LogoVariant = 'light',
+  ) {
     const row = await this.getRow();
-    this.deleteHeroFile(row.heroImagePath);
-    row.heroImagePath = null;
+    if (variant === 'dark') {
+      this.deleteLogoFile(row.logoDarkPath);
+      row.logoDarkPath = null;
+    } else {
+      this.deleteLogoFile(row.logoLightPath);
+      this.deleteLogoFile(row.heroImagePath);
+      row.logoLightPath = null;
+      row.heroImagePath = null;
+    }
     await this.repo.save(row);
     return this.toResponse(row, requestBaseUrl);
   }
 
-  private deleteHeroFile(storedPath: string | null) {
+  /** @deprecated Prefer clearLogo */
+  async clearHeroImage(requestBaseUrl?: string) {
+    return this.clearLogo(requestBaseUrl, 'light');
+  }
+
+  private deleteLogoFile(storedPath: string | null) {
     if (!storedPath) return;
     const match = storedPath.match(/\/uploads\/branding\/([^/]+)$/);
     if (!match) return;
