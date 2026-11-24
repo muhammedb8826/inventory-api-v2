@@ -12,7 +12,6 @@ import {
   CommissionBasis,
   CreditSource,
   CreditStatus,
-  DEFAULT_COMMISSION_PERCENT,
   DocumentStatus,
   PaymentMethod,
   ProductionOrderStatus,
@@ -43,6 +42,7 @@ import {
   LowStockService,
   StockQuantityChange,
 } from '../notifications/low-stock.service';
+import { SettingsService } from '../settings/settings.service';
 import { CommissionSummaryQueryDto } from './dto/commission-summary-query.dto';
 import { CreateSaleDto, SaleLineDto } from './dto/sale.dto';
 import { UpdateSaleDto } from './dto/update-sale.dto';
@@ -90,6 +90,7 @@ export class SalesService {
     private readonly uomConversion: UomConversionService,
     private readonly kitSale: KitSaleService,
     private readonly productionService: ProductionService,
+    private readonly settings: SettingsService,
   ) {}
 
   async findAll(query: SalesListQueryDto) {
@@ -386,7 +387,12 @@ export class SalesService {
     }, 0);
   }
 
-  private commissionFields(
+  /**
+   * Resolve commission from company plan.
+   * Overrides (percent/basis on the DTO) require `sales.commission`.
+   * When the plan is disabled, amount is always 0.
+   */
+  private async commissionFields(
     subtotal: number,
     lines: SaleCommissionLineInput[],
     opts: {
@@ -394,15 +400,40 @@ export class SalesService {
       existingPercent?: string;
       commissionBasis?: CommissionBasis;
       existingBasis?: CommissionBasis;
+      canOverride?: boolean;
+      /** New sale — apply plan defaults unless overridden. */
+      isCreate?: boolean;
     },
   ) {
-    const pct =
-      opts.commissionPercent ??
-      (opts.existingPercent !== undefined
-        ? parseFloat(opts.existingPercent)
-        : DEFAULT_COMMISSION_PERCENT);
-    const basis: CommissionBasis =
-      opts.commissionBasis ?? opts.existingBasis ?? CommissionBasis.PROFIT;
+    const plan = await this.settings.getCommissionPlan();
+    const applyOverride = opts.canOverride === true;
+
+    if (!plan.enabled) {
+      const basis =
+        applyOverride && opts.commissionBasis !== undefined
+          ? opts.commissionBasis
+          : plan.defaultBasis;
+      return {
+        commissionPercent: '0.00',
+        commissionBasis: basis,
+        commissionAmount: '0.00',
+      };
+    }
+
+    let pct = parseFloat(plan.defaultPercent);
+    let basis: CommissionBasis = plan.defaultBasis;
+
+    if (!opts.isCreate && opts.existingPercent !== undefined) {
+      pct = parseFloat(opts.existingPercent);
+      basis = opts.existingBasis ?? basis;
+    }
+
+    // Without sales.commission, ignore client percent/basis (company plan / existing wins).
+    if (applyOverride) {
+      if (opts.commissionPercent !== undefined) pct = opts.commissionPercent;
+      if (opts.commissionBasis !== undefined) basis = opts.commissionBasis;
+    }
+
     const profit: number = this.lineProfit(lines);
     return {
       commissionPercent: pct.toFixed(2),
@@ -495,6 +526,7 @@ export class SalesService {
     userId?: string,
     canNegativeStock = false,
     canOnBehalf = false,
+    canCommissionOverride = false,
   ) {
     if (this.isMetadataOnlyUpdate(dto)) {
       const sale = await this.findOne(id);
@@ -530,11 +562,12 @@ export class SalesService {
           userId,
           canOnBehalf,
         );
-        const commission = this.commissionFields(subtotal, sale.lines, {
+        const commission = await this.commissionFields(subtotal, sale.lines, {
           commissionPercent: dto.commissionPercent,
           existingPercent: sale.commissionPercent,
           commissionBasis: dto.commissionBasis,
           existingBasis: sale.commissionBasis,
+          canOverride: canCommissionOverride,
         });
         sale.commissionPercent = commission.commissionPercent;
         sale.commissionBasis = commission.commissionBasis;
@@ -753,11 +786,12 @@ export class SalesService {
         canOnBehalf,
         manager,
       );
-      const commission = this.commissionFields(subtotal, saleLines, {
+      const commission = await this.commissionFields(subtotal, saleLines, {
         commissionPercent: dto.commissionPercent,
         existingPercent: sale.commissionPercent,
         commissionBasis: dto.commissionBasis,
         existingBasis: sale.commissionBasis,
+        canOverride: canCommissionOverride,
       });
       sale.commissionPercent = commission.commissionPercent;
       sale.commissionBasis = commission.commissionBasis;
@@ -928,6 +962,7 @@ export class SalesService {
     userId?: string,
     canNegativeStock = false,
     canOnBehalf = false,
+    canCommissionOverride = false,
   ) {
     const allowNegative = dto.allowNegativeStock === true;
     if (allowNegative && !canNegativeStock) {
@@ -1046,9 +1081,11 @@ export class SalesService {
         canOnBehalf,
         manager,
       );
-      const commission = this.commissionFields(subtotal, saleLines, {
+      const commission = await this.commissionFields(subtotal, saleLines, {
         commissionPercent: dto.commissionPercent,
         commissionBasis: dto.commissionBasis,
+        canOverride: canCommissionOverride,
+        isCreate: true,
       });
 
       const sale = await saleRepo.save(

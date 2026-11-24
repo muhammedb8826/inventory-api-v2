@@ -10,8 +10,18 @@ import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { randomUUID } from 'crypto';
 import { DataSource, Repository } from 'typeorm';
+import { CommissionBasis, DEFAULT_COMMISSION_PERCENT } from '../common/enums';
+import {
+  COMMISSION_SETTINGS_ID,
+  CommissionSettings,
+} from '../database/entities/commission-settings.entity';
 import { SiteBranding } from '../database/entities/site-branding.entity';
 import { BrandingResponse, UpdateBrandingDto } from './dto/branding.dto';
+import {
+  CommissionDefaultsView,
+  CommissionSettingsView,
+  UpdateCommissionSettingsDto,
+} from './dto/commission-settings.dto';
 
 const ALLOWED_MIME: Record<string, string> = {
   'image/jpeg': '.jpg',
@@ -30,6 +40,8 @@ export class SettingsService implements OnModuleInit {
   constructor(
     @InjectRepository(SiteBranding)
     private readonly repo: Repository<SiteBranding>,
+    @InjectRepository(CommissionSettings)
+    private readonly commissionRepo: Repository<CommissionSettings>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly config: ConfigService,
@@ -37,6 +49,7 @@ export class SettingsService implements OnModuleInit {
 
   async onModuleInit() {
     await this.ensureRow();
+    await this.ensureCommissionSettings();
     if (!existsSync(this.uploadDir)) {
       mkdirSync(this.uploadDir, { recursive: true });
     }
@@ -190,5 +203,99 @@ export class SettingsService implements OnModuleInit {
         // ignore missing/locked file
       }
     }
+  }
+
+  private async ensureCommissionTable() {
+    await this.dataSource.query(`
+      DO $$ BEGIN
+        CREATE TYPE "sales_commission_basis_enum" AS ENUM ('PROFIT', 'SALES');
+      EXCEPTION
+        WHEN duplicate_object THEN null;
+      END $$
+    `);
+    await this.dataSource.query(`
+      CREATE TABLE IF NOT EXISTS "commission_settings" (
+        "id" character varying(32) NOT NULL DEFAULT 'default',
+        "enabled" boolean NOT NULL DEFAULT true,
+        "default_percent" numeric(5,2) NOT NULL DEFAULT 10,
+        "default_basis" "sales_commission_basis_enum" NOT NULL DEFAULT 'PROFIT',
+        "created_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
+        "updated_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT "PK_commission_settings" PRIMARY KEY ("id")
+      )
+    `);
+  }
+
+  async ensureCommissionSettings(): Promise<CommissionSettings> {
+    try {
+      await this.ensureCommissionTable();
+      let row = await this.commissionRepo.findOne({
+        where: { id: COMMISSION_SETTINGS_ID },
+      });
+      if (!row) {
+        row = await this.commissionRepo.save(
+          this.commissionRepo.create({
+            id: COMMISSION_SETTINGS_ID,
+            enabled: true,
+            defaultPercent: DEFAULT_COMMISSION_PERCENT.toFixed(2),
+            defaultBasis: CommissionBasis.PROFIT,
+          }),
+        );
+      }
+      return row;
+    } catch (err) {
+      this.logger.error(
+        'Failed to ensure commission_settings row; run migration:run',
+        err instanceof Error ? err.stack : err,
+      );
+      throw err;
+    }
+  }
+
+  private toCommissionView(row: CommissionSettings): CommissionSettingsView {
+    return {
+      id: row.id,
+      enabled: row.enabled,
+      defaultPercent: parseFloat(row.defaultPercent),
+      defaultBasis: row.defaultBasis,
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+    };
+  }
+
+  private toCommissionDefaults(row: CommissionSettings): CommissionDefaultsView {
+    return {
+      enabled: row.enabled,
+      defaultPercent: parseFloat(row.defaultPercent),
+      defaultBasis: row.defaultBasis,
+    };
+  }
+
+  async getCommissionSettings(): Promise<CommissionSettingsView> {
+    const row = await this.ensureCommissionSettings();
+    return this.toCommissionView(row);
+  }
+
+  async getCommissionDefaults(): Promise<CommissionDefaultsView> {
+    const row = await this.ensureCommissionSettings();
+    return this.toCommissionDefaults(row);
+  }
+
+  /** Raw settings for sale commission calculation. */
+  async getCommissionPlan(): Promise<CommissionSettings> {
+    return this.ensureCommissionSettings();
+  }
+
+  async updateCommissionSettings(
+    dto: UpdateCommissionSettingsDto,
+  ): Promise<CommissionSettingsView> {
+    const row = await this.ensureCommissionSettings();
+    if (dto.enabled !== undefined) row.enabled = dto.enabled;
+    if (dto.defaultPercent !== undefined) {
+      row.defaultPercent = dto.defaultPercent.toFixed(2);
+    }
+    if (dto.defaultBasis !== undefined) row.defaultBasis = dto.defaultBasis;
+    const saved = await this.commissionRepo.save(row);
+    return this.toCommissionView(saved);
   }
 }

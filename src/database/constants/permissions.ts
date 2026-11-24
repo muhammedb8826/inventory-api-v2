@@ -48,6 +48,11 @@ export const PERMISSION_DEFINITIONS = [
     name: 'Sell on behalf of another user',
     module: 'sales',
   },
+  {
+    code: 'sales.commission',
+    name: 'Override sale commission rate / basis',
+    module: 'sales',
+  },
   { code: 'credit.read', name: 'View credits', module: 'credit' },
   { code: 'credit.write', name: 'Manage credit payments', module: 'credit' },
   { code: 'expense.read', name: 'View expenses', module: 'expense' },

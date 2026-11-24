@@ -31,6 +31,7 @@ export { CustomerInquiry } from './customer-inquiry.entity';
 export { CustomerInquiryLine } from './customer-inquiry-line.entity';
 export { StaffMessage } from './staff-message.entity';
 export { SiteBranding } from './site-branding.entity';
+export { CommissionSettings } from './commission-settings.entity';
 export { UomCategory } from './uom-category.entity';
 export { Uom } from './uom.entity';
 export { ItemUom } from './item-uom.entity';
@@ -71,6 +72,7 @@ import { CustomerInquiry } from './customer-inquiry.entity';
 import { CustomerInquiryLine } from './customer-inquiry-line.entity';
 import { StaffMessage } from './staff-message.entity';
 import { SiteBranding } from './site-branding.entity';
+import { CommissionSettings } from './commission-settings.entity';
 import { UomCategory } from './uom-category.entity';
 import { Uom } from './uom.entity';
 import { ItemUom } from './item-uom.entity';
@@ -112,6 +114,7 @@ export const entities = [
   CustomerInquiryLine,
   StaffMessage,
   SiteBranding,
+  CommissionSettings,
   UomCategory,
   Uom,
   ItemUom,

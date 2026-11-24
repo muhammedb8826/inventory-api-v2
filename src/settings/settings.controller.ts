@@ -13,10 +13,14 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import type { Request } from 'express';
-import { RequirePermissions } from '../common/decorators/permissions.decorator';
+import {
+  RequireAnyPermissions,
+  RequirePermissions,
+} from '../common/decorators/permissions.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { UpdateBrandingDto } from './dto/branding.dto';
+import { UpdateCommissionSettingsDto } from './dto/commission-settings.dto';
 import { SettingsService } from './settings.service';
 
 function requestBaseUrl(req: Request) {
@@ -58,5 +62,25 @@ export class SettingsController {
   @RequirePermissions('settings.write')
   clearHero(@Req() req: Request) {
     return this.settings.clearHeroImage(requestBaseUrl(req));
+  }
+
+  /** Full admin view of the company commission plan. */
+  @Get('commission')
+  @RequirePermissions('settings.read')
+  getCommission() {
+    return this.settings.getCommissionSettings();
+  }
+
+  /** Defaults for sales UI — plan rate/basis, no admin-only fields. */
+  @Get('commission/defaults')
+  @RequireAnyPermissions('sales.read', 'sales.write', 'settings.read')
+  getCommissionDefaults() {
+    return this.settings.getCommissionDefaults();
+  }
+
+  @Patch('commission')
+  @RequirePermissions('settings.write')
+  updateCommission(@Body() dto: UpdateCommissionSettingsDto) {
+    return this.settings.updateCommissionSettings(dto);
   }
 }

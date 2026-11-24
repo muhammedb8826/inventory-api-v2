@@ -66,6 +66,7 @@ export enum CommissionBasis {
   SALES = 'SALES',
 }
 
+/** Fallback only when commission settings row is missing. Prefer settings.defaultPercent. */
 export const DEFAULT_COMMISSION_PERCENT = 10;
 
 /** Inventory stock adjustment reasons (manual qty changes with audit). */

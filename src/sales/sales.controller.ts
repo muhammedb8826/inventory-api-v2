@@ -55,7 +55,14 @@ export class SalesController {
     const perms = req.permissions ?? [];
     const canNegative = perms.includes('sales.negative_stock');
     const canOnBehalf = perms.includes('sales.on_behalf');
-    return this.service.create(dto, user.sub, canNegative, canOnBehalf);
+    const canCommission = perms.includes('sales.commission');
+    return this.service.create(
+      dto,
+      user.sub,
+      canNegative,
+      canOnBehalf,
+      canCommission,
+    );
   }
 
   @Patch(':id')
@@ -69,7 +76,15 @@ export class SalesController {
     const perms = req.permissions ?? [];
     const canNegative = perms.includes('sales.negative_stock');
     const canOnBehalf = perms.includes('sales.on_behalf');
-    return this.service.update(id, dto, user.sub, canNegative, canOnBehalf);
+    const canCommission = perms.includes('sales.commission');
+    return this.service.update(
+      id,
+      dto,
+      user.sub,
+      canNegative,
+      canOnBehalf,
+      canCommission,
+    );
   }
 
   @Delete(':id')
