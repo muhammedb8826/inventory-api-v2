@@ -12,6 +12,7 @@ import {
   DocumentStatus,
   PaymentMethod,
   StockMovementRefType,
+  TaxMode,
 } from '../common/enums';
 import {
   applyDateRangeToQb,
@@ -19,6 +20,7 @@ import {
   paginatedQueryBuilder,
   sumFilteredQueryBuilder,
 } from '../common/utils/query.util';
+import { computeDocumentTax } from '../common/utils/tax.util';
 import { PurchaseListQueryDto } from './dto/purchase-list-query.dto';
 import { BankLedgerService } from '../banks/bank-ledger.service';
 import { BanksService } from '../banks/banks.service';
@@ -27,6 +29,7 @@ import { Purchase } from '../database/entities/purchase.entity';
 import { SupplierCredit } from '../database/entities/supplier-credit.entity';
 import { StockService } from '../inventory/stock.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { SettingsService } from '../settings/settings.service';
 import { CreatePurchaseDto, PurchaseLineDto } from './dto/purchase.dto';
 import { UpdatePurchaseDto } from './dto/update-purchase.dto';
 import { UomConversionService } from '../uom/uom-conversion.service';
@@ -57,7 +60,55 @@ export class PurchasesService {
     private readonly banksService: BanksService,
     private readonly notifications: NotificationsService,
     private readonly uomConversion: UomConversionService,
+    private readonly settings: SettingsService,
   ) {}
+
+  private async taxFields(
+    subtotal: number,
+    opts: {
+      taxPercent?: number;
+      existingPercent?: string;
+      taxMode?: TaxMode;
+      existingMode?: TaxMode;
+      canOverride?: boolean;
+      isCreate?: boolean;
+    },
+  ) {
+    const plan = await this.settings.getTaxPlan();
+    const applyOverride = opts.canOverride === true;
+    const enabled = plan.enabled && plan.applyToPurchases;
+
+    let pct = parseFloat(plan.defaultPercent);
+    let mode: TaxMode = plan.defaultMode;
+
+    if (!opts.isCreate && opts.existingPercent !== undefined) {
+      pct = parseFloat(opts.existingPercent);
+      mode = opts.existingMode ?? mode;
+    }
+
+    if (applyOverride) {
+      if (opts.taxPercent !== undefined) pct = opts.taxPercent;
+      if (opts.taxMode !== undefined) mode = opts.taxMode;
+    }
+
+    return computeDocumentTax(subtotal, pct, mode, enabled);
+  }
+
+  private isTaxMetadataUpdate(dto: UpdatePurchaseDto): boolean {
+    const keys = (Object.keys(dto) as (keyof UpdatePurchaseDto)[]).filter(
+      (k) => dto[k] !== undefined,
+    );
+    if (!keys.length) return false;
+    const allowed = new Set<keyof UpdatePurchaseDto>([
+      'notes',
+      'taxPercent',
+      'taxMode',
+    ]);
+    return (
+      keys.every((k) => allowed.has(k)) &&
+      (keys.includes('taxPercent') || keys.includes('taxMode'))
+    );
+  }
 
   async findAll(query: PurchaseListQueryDto) {
     const filteredQb = this.buildPurchaseFilterQb(query);
@@ -166,13 +217,52 @@ export class PurchasesService {
     return method === PaymentMethod.BANK || method === PaymentMethod.CASH;
   }
 
-  async update(id: string, dto: UpdatePurchaseDto, userId?: string) {
+  async update(
+    id: string,
+    dto: UpdatePurchaseDto,
+    userId?: string,
+    canTaxOverride = false,
+  ) {
     if (this.isNotesOnlyUpdate(dto)) {
       const purchase = await this.findOne(id);
       if (purchase.status === DocumentStatus.VOIDED) {
         throw new BadRequestException('Cannot update a voided purchase');
       }
       purchase.notes = dto.notes ?? null;
+      await this.purchaseRepo.save(purchase);
+      return this.findOne(id);
+    }
+
+    if (this.isTaxMetadataUpdate(dto)) {
+      const purchase = await this.findOne(id);
+      if (purchase.status === DocumentStatus.VOIDED) {
+        throw new BadRequestException('Cannot update a voided purchase');
+      }
+      if (purchase.credit && parseFloat(purchase.credit.paidAmount) > 0) {
+        throw new BadRequestException(
+          'Cannot change purchase after supplier credit payments; only notes may be updated',
+        );
+      }
+      if (dto.notes !== undefined) purchase.notes = dto.notes ?? null;
+      const subtotal = parseFloat(purchase.subtotal);
+      const tax = await this.taxFields(subtotal, {
+        taxPercent: dto.taxPercent,
+        existingPercent: purchase.taxPercent,
+        taxMode: dto.taxMode,
+        existingMode: purchase.taxMode,
+        canOverride: canTaxOverride,
+      });
+      purchase.taxPercent = tax.taxPercent;
+      purchase.taxAmount = tax.taxAmount;
+      purchase.taxMode = tax.taxMode;
+      purchase.total = tax.total;
+      if (purchase.credit && parseFloat(purchase.credit.paidAmount) === 0) {
+        purchase.credit.amount = tax.total;
+        purchase.credit.balance = tax.total;
+        await this.dataSource
+          .getRepository(SupplierCredit)
+          .save(purchase.credit);
+      }
       await this.purchaseRepo.save(purchase);
       return this.findOne(id);
     }
@@ -295,13 +385,24 @@ export class PurchasesService {
       }
 
       const subtotal = resolved.reduce((sum, r) => sum + r.dim.lineTotal, 0);
+      const tax = await this.taxFields(subtotal, {
+        taxPercent: dto.taxPercent,
+        existingPercent: purchase.taxPercent,
+        taxMode: dto.taxMode,
+        existingMode: purchase.taxMode,
+        canOverride: canTaxOverride,
+      });
+      const payable = parseFloat(tax.total);
 
       purchase.supplierId = supplierId;
       purchase.locationId = locationId;
       purchase.paymentMethod = paymentMethod;
       purchase.bankAccountId = bankAccountId ?? null;
       purchase.subtotal = subtotal.toFixed(2);
-      purchase.total = subtotal.toFixed(2);
+      purchase.taxPercent = tax.taxPercent;
+      purchase.taxAmount = tax.taxAmount;
+      purchase.taxMode = tax.taxMode;
+      purchase.total = tax.total;
       purchase.notes = notes;
       purchase.lines = resolved.map(({ line: l, dim }) =>
         Object.assign(new PurchaseLine(), {
@@ -344,7 +445,7 @@ export class PurchasesService {
           {
             bankAccountId,
             type: BankTransactionType.PURCHASE,
-            amount: subtotal,
+            amount: payable,
             direction: 'out',
             description: `Purchase ${purchase.id}`,
             refType: 'purchase',
@@ -361,9 +462,9 @@ export class PurchasesService {
             supplierId,
             purchaseId: purchase.id,
             source: CreditSource.PURCHASE,
-            amount: subtotal.toFixed(2),
+            amount: payable.toFixed(2),
             paidAmount: '0',
-            balance: subtotal.toFixed(2),
+            balance: payable.toFixed(2),
             status: CreditStatus.OPEN,
             dueDate: creditDueDate ?? null,
           }),
@@ -434,7 +535,11 @@ export class PurchasesService {
     return this.findOne(id);
   }
 
-  async create(dto: CreatePurchaseDto, userId?: string) {
+  async create(
+    dto: CreatePurchaseDto,
+    userId?: string,
+    canTaxOverride = false,
+  ) {
     const needsBank =
       dto.paymentMethod === PaymentMethod.BANK ||
       dto.paymentMethod === PaymentMethod.CASH;
@@ -483,6 +588,13 @@ export class PurchasesService {
       }
 
       const subtotal = resolved.reduce((sum, r) => sum + r.dim.lineTotal, 0);
+      const tax = await this.taxFields(subtotal, {
+        taxPercent: dto.taxPercent,
+        taxMode: dto.taxMode,
+        canOverride: canTaxOverride,
+        isCreate: true,
+      });
+      const payable = parseFloat(tax.total);
 
       const lines = resolved.map(({ line: l, dim }) =>
         Object.assign(new PurchaseLine(), {
@@ -505,7 +617,10 @@ export class PurchasesService {
           paymentMethod: dto.paymentMethod,
           bankAccountId: dto.bankAccountId ?? null,
           subtotal: subtotal.toFixed(2),
-          total: subtotal.toFixed(2),
+          taxPercent: tax.taxPercent,
+          taxAmount: tax.taxAmount,
+          taxMode: tax.taxMode,
+          total: tax.total,
           notes: dto.notes ?? null,
           status: DocumentStatus.ACTIVE,
           createdById: userId ?? null,
@@ -538,7 +653,7 @@ export class PurchasesService {
           {
             bankAccountId: dto.bankAccountId,
             type: BankTransactionType.PURCHASE,
-            amount: subtotal,
+            amount: payable,
             direction: 'out',
             description: `Purchase ${purchase.id}`,
             refType: 'purchase',
@@ -555,21 +670,21 @@ export class PurchasesService {
             supplierId: dto.supplierId,
             purchaseId: purchase.id,
             source: CreditSource.PURCHASE,
-            amount: subtotal.toFixed(2),
+            amount: payable.toFixed(2),
             paidAmount: '0',
-            balance: subtotal.toFixed(2),
+            balance: payable.toFixed(2),
             status: CreditStatus.OPEN,
             dueDate: dto.creditDueDate ?? null,
           }),
         );
       }
 
-      return { purchaseId: purchase.id, subtotal };
+      return { purchaseId: purchase.id, total: tax.total };
     });
 
     await this.notifications.onPurchaseRecorded({
       purchaseId: created.purchaseId,
-      total: created.subtotal.toFixed(2),
+      total: created.total,
       actorUserId: userId,
       creditDueDate: dto.creditDueDate ?? null,
     });

@@ -4,12 +4,15 @@ import {
   IsArray,
   IsDateString,
   IsEnum,
+  IsNumber,
   IsOptional,
   IsString,
   IsUUID,
+  Max,
+  Min,
   ValidateNested,
 } from 'class-validator';
-import { PaymentMethod } from '../../common/enums';
+import { PaymentMethod, TaxMode } from '../../common/enums';
 import { PurchaseLineDto } from './purchase.dto';
 
 export class UpdatePurchaseDto {
@@ -36,6 +39,17 @@ export class UpdatePurchaseDto {
   @IsOptional()
   @IsDateString()
   creditDueDate?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  taxPercent?: number;
+
+  @IsOptional()
+  @IsEnum(TaxMode)
+  taxMode?: TaxMode;
 
   @IsOptional()
   @IsArray()

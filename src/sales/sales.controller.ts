@@ -56,12 +56,14 @@ export class SalesController {
     const canNegative = perms.includes('sales.negative_stock');
     const canOnBehalf = perms.includes('sales.on_behalf');
     const canCommission = perms.includes('sales.commission');
+    const canTax = perms.includes('sales.tax');
     return this.service.create(
       dto,
       user.sub,
       canNegative,
       canOnBehalf,
       canCommission,
+      canTax,
     );
   }
 
@@ -77,6 +79,7 @@ export class SalesController {
     const canNegative = perms.includes('sales.negative_stock');
     const canOnBehalf = perms.includes('sales.on_behalf');
     const canCommission = perms.includes('sales.commission');
+    const canTax = perms.includes('sales.tax');
     return this.service.update(
       id,
       dto,
@@ -84,6 +87,7 @@ export class SalesController {
       canNegative,
       canOnBehalf,
       canCommission,
+      canTax,
     );
   }
 

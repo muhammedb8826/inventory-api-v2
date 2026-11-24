@@ -69,6 +69,16 @@ export enum CommissionBasis {
 /** Fallback only when commission settings row is missing. Prefer settings.defaultPercent. */
 export const DEFAULT_COMMISSION_PERCENT = 10;
 
+/**
+ * How tax relates to line/subtotal amounts.
+ * EXCLUSIVE — tax added on top (total = subtotal + tax).
+ * INCLUSIVE — prices already include tax (total = subtotal; tax extracted).
+ */
+export enum TaxMode {
+  EXCLUSIVE = 'EXCLUSIVE',
+  INCLUSIVE = 'INCLUSIVE',
+}
+
 /** Inventory stock adjustment reasons (manual qty changes with audit). */
 export enum StockAdjustmentReason {
   DAMAGE = 'DAMAGE',

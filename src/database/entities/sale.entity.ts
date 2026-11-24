@@ -12,6 +12,7 @@ import {
   DocumentStatus,
   PaymentMethod,
   CommissionBasis,
+  TaxMode,
 } from '../../common/enums';
 import { BankAccount } from './bank-account.entity';
 import { Customer } from './customer.entity';
@@ -93,6 +94,33 @@ export class Sale extends UuidBaseEntity {
     default: 0,
   })
   commissionAmount: string;
+
+  @Column({
+    name: 'tax_percent',
+    type: 'decimal',
+    precision: 5,
+    scale: 2,
+    default: 0,
+  })
+  taxPercent: string;
+
+  @Column({
+    name: 'tax_amount',
+    type: 'decimal',
+    precision: 14,
+    scale: 2,
+    default: 0,
+  })
+  taxAmount: string;
+
+  @Column({
+    name: 'tax_mode',
+    type: 'enum',
+    enum: TaxMode,
+    enumName: 'tax_mode_enum',
+    default: TaxMode.EXCLUSIVE,
+  })
+  taxMode: TaxMode;
 
   @ManyToOne(() => Customer, (customer) => customer.sales)
   @JoinColumn({ name: 'customer_id' })

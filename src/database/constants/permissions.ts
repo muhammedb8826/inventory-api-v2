@@ -36,6 +36,11 @@ export const PERMISSION_DEFINITIONS = [
   },
   { code: 'purchase.read', name: 'View purchases', module: 'purchase' },
   { code: 'purchase.write', name: 'Manage purchases', module: 'purchase' },
+  {
+    code: 'purchase.tax',
+    name: 'Override purchase tax rate / mode',
+    module: 'purchase',
+  },
   { code: 'sales.read', name: 'View sales', module: 'sales' },
   { code: 'sales.write', name: 'Manage sales', module: 'sales' },
   {
@@ -51,6 +56,11 @@ export const PERMISSION_DEFINITIONS = [
   {
     code: 'sales.commission',
     name: 'Override sale commission rate / basis',
+    module: 'sales',
+  },
+  {
+    code: 'sales.tax',
+    name: 'Override sale tax rate / mode',
     module: 'sales',
   },
   { code: 'credit.read', name: 'View credits', module: 'credit' },

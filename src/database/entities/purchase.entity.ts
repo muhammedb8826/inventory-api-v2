@@ -8,7 +8,7 @@ import {
   OneToOne,
   UpdateDateColumn,
 } from 'typeorm';
-import { DocumentStatus, PaymentMethod } from '../../common/enums';
+import { DocumentStatus, PaymentMethod, TaxMode } from '../../common/enums';
 import { BankAccount } from './bank-account.entity';
 import { Location } from './location.entity';
 import { PurchaseLine } from './purchase-line.entity';
@@ -36,6 +36,33 @@ export class Purchase extends UuidBaseEntity {
 
   @Column({ type: 'decimal', precision: 14, scale: 2, default: 0 })
   total: string;
+
+  @Column({
+    name: 'tax_percent',
+    type: 'decimal',
+    precision: 5,
+    scale: 2,
+    default: 0,
+  })
+  taxPercent: string;
+
+  @Column({
+    name: 'tax_amount',
+    type: 'decimal',
+    precision: 14,
+    scale: 2,
+    default: 0,
+  })
+  taxAmount: string;
+
+  @Column({
+    name: 'tax_mode',
+    type: 'enum',
+    enum: TaxMode,
+    enumName: 'tax_mode_enum',
+    default: TaxMode.EXCLUSIVE,
+  })
+  taxMode: TaxMode;
 
   @Column({ type: 'text', nullable: true })
   notes: string | null;

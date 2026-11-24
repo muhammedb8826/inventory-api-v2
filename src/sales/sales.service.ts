@@ -16,11 +16,13 @@ import {
   PaymentMethod,
   ProductionOrderStatus,
   StockMovementRefType,
+  TaxMode,
 } from '../common/enums';
 import {
   computeCommissionAmount,
   stockQtyForCost,
 } from '../common/utils/commission.util';
+import { computeDocumentTax } from '../common/utils/tax.util';
 import {
   applyDateRangeToQb,
   applyRelatedIlikeSearch,
@@ -388,6 +390,41 @@ export class SalesService {
   }
 
   /**
+   * Resolve tax from company plan.
+   * Overrides require `sales.tax`. Disabled plan / applyToSales=false → 0 tax.
+   */
+  private async taxFields(
+    subtotal: number,
+    opts: {
+      taxPercent?: number;
+      existingPercent?: string;
+      taxMode?: TaxMode;
+      existingMode?: TaxMode;
+      canOverride?: boolean;
+      isCreate?: boolean;
+    },
+  ) {
+    const plan = await this.settings.getTaxPlan();
+    const applyOverride = opts.canOverride === true;
+    const enabled = plan.enabled && plan.applyToSales;
+
+    let pct = parseFloat(plan.defaultPercent);
+    let mode: TaxMode = plan.defaultMode;
+
+    if (!opts.isCreate && opts.existingPercent !== undefined) {
+      pct = parseFloat(opts.existingPercent);
+      mode = opts.existingMode ?? mode;
+    }
+
+    if (applyOverride) {
+      if (opts.taxPercent !== undefined) pct = opts.taxPercent;
+      if (opts.taxMode !== undefined) mode = opts.taxMode;
+    }
+
+    return computeDocumentTax(subtotal, pct, mode, enabled);
+  }
+
+  /**
    * Resolve commission from company plan.
    * Overrides (percent/basis on the DTO) require `sales.commission`.
    * When the plan is disabled, amount is always 0.
@@ -527,6 +564,7 @@ export class SalesService {
     canNegativeStock = false,
     canOnBehalf = false,
     canCommissionOverride = false,
+    canTaxOverride = false,
   ) {
     if (this.isMetadataOnlyUpdate(dto)) {
       const sale = await this.findOne(id);
@@ -572,6 +610,25 @@ export class SalesService {
         sale.commissionPercent = commission.commissionPercent;
         sale.commissionBasis = commission.commissionBasis;
         sale.commissionAmount = commission.commissionAmount;
+      }
+
+      if (dto.taxPercent !== undefined || dto.taxMode !== undefined) {
+        const tax = await this.taxFields(subtotal, {
+          taxPercent: dto.taxPercent,
+          existingPercent: sale.taxPercent,
+          taxMode: dto.taxMode,
+          existingMode: sale.taxMode,
+          canOverride: canTaxOverride,
+        });
+        sale.taxPercent = tax.taxPercent;
+        sale.taxAmount = tax.taxAmount;
+        sale.taxMode = tax.taxMode;
+        sale.total = tax.total;
+        if (sale.credit && parseFloat(sale.credit.paidAmount) === 0) {
+          sale.credit.amount = tax.total;
+          sale.credit.balance = tax.total;
+          await this.dataSource.getRepository(CustomerCredit).save(sale.credit);
+        }
       }
 
       await this.saleRepo.save(sale);
@@ -776,7 +833,6 @@ export class SalesService {
       sale.bankAccountId = bankAccountId ?? null;
       sale.allowNegativeStock = allowNeg;
       sale.subtotal = subtotal.toFixed(2);
-      sale.total = subtotal.toFixed(2);
       sale.notes = notes;
       sale.stockWarnings = stockWarnings.length ? stockWarnings : null;
       sale.lines = saleLines.map((l) => Object.assign(new SaleLine(), l));
@@ -796,6 +852,18 @@ export class SalesService {
       sale.commissionPercent = commission.commissionPercent;
       sale.commissionBasis = commission.commissionBasis;
       sale.commissionAmount = commission.commissionAmount;
+      const tax = await this.taxFields(subtotal, {
+        taxPercent: dto.taxPercent,
+        existingPercent: sale.taxPercent,
+        taxMode: dto.taxMode,
+        existingMode: sale.taxMode,
+        canOverride: canTaxOverride,
+      });
+      sale.taxPercent = tax.taxPercent;
+      sale.taxAmount = tax.taxAmount;
+      sale.taxMode = tax.taxMode;
+      sale.total = tax.total;
+      const payable = parseFloat(tax.total);
 
       await saleRepo.save(sale);
 
@@ -847,7 +915,7 @@ export class SalesService {
           {
             bankAccountId,
             type: BankTransactionType.SALE,
-            amount: subtotal,
+            amount: payable,
             direction: 'in',
             description: `Sale ${sale.id}`,
             refType: 'sale',
@@ -864,9 +932,9 @@ export class SalesService {
             customerId,
             saleId: sale.id,
             source: CreditSource.SALE,
-            amount: subtotal.toFixed(2),
+            amount: payable.toFixed(2),
             paidAmount: '0',
-            balance: subtotal.toFixed(2),
+            balance: payable.toFixed(2),
             status: CreditStatus.OPEN,
             dueDate: creditDueDate ?? null,
           }),
@@ -963,6 +1031,7 @@ export class SalesService {
     canNegativeStock = false,
     canOnBehalf = false,
     canCommissionOverride = false,
+    canTaxOverride = false,
   ) {
     const allowNegative = dto.allowNegativeStock === true;
     if (allowNegative && !canNegativeStock) {
@@ -1087,6 +1156,13 @@ export class SalesService {
         canOverride: canCommissionOverride,
         isCreate: true,
       });
+      const tax = await this.taxFields(subtotal, {
+        taxPercent: dto.taxPercent,
+        taxMode: dto.taxMode,
+        canOverride: canTaxOverride,
+        isCreate: true,
+      });
+      const payable = parseFloat(tax.total);
 
       const sale = await saleRepo.save(
         saleRepo.create({
@@ -1096,7 +1172,10 @@ export class SalesService {
           bankAccountId: dto.bankAccountId ?? null,
           allowNegativeStock: allowNegative,
           subtotal: subtotal.toFixed(2),
-          total: subtotal.toFixed(2),
+          total: tax.total,
+          taxPercent: tax.taxPercent,
+          taxAmount: tax.taxAmount,
+          taxMode: tax.taxMode,
           notes: dto.notes ?? null,
           stockWarnings: stockWarnings.length ? stockWarnings : null,
           status: DocumentStatus.ACTIVE,
@@ -1157,7 +1236,7 @@ export class SalesService {
           {
             bankAccountId: dto.bankAccountId,
             type: BankTransactionType.SALE,
-            amount: subtotal,
+            amount: payable,
             direction: 'in',
             description: `Sale ${sale.id}`,
             refType: 'sale',
@@ -1174,9 +1253,9 @@ export class SalesService {
             customerId: dto.customerId,
             saleId: sale.id,
             source: CreditSource.SALE,
-            amount: subtotal.toFixed(2),
+            amount: payable.toFixed(2),
             paidAmount: '0',
-            balance: subtotal.toFixed(2),
+            balance: payable.toFixed(2),
             status: CreditStatus.OPEN,
             dueDate: dto.creditDueDate ?? null,
           }),
@@ -1187,7 +1266,7 @@ export class SalesService {
         saleId: sale.id,
         stockWarnings,
         soldByUserId,
-        subtotal: subtotal.toFixed(2),
+        total: tax.total,
         creditDueDate: dto.creditDueDate ?? null,
         proceedWithProduction,
       };
@@ -1197,7 +1276,7 @@ export class SalesService {
     await this.lowStockService.evaluateChanges(stockChanges);
     await this.notifications.onSaleRecorded({
       saleId: result.saleId,
-      total: result.subtotal,
+      total: result.total,
       actorUserId: userId,
       soldByUserId: result.soldByUserId,
       stockWarnings: result.stockWarnings,

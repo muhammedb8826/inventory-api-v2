@@ -7,8 +7,10 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
+import { Request } from 'express';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { JwtPayload } from '../common/decorators/current-user.decorator';
 import { PurchaseListQueryDto } from './dto/purchase-list-query.dto';
@@ -38,8 +40,13 @@ export class PurchasesController {
 
   @Post()
   @RequirePermissions('purchase.write')
-  create(@Body() dto: CreatePurchaseDto, @CurrentUser() user: JwtPayload) {
-    return this.service.create(dto, user.sub);
+  create(
+    @Body() dto: CreatePurchaseDto,
+    @CurrentUser() user: JwtPayload,
+    @Req() req: Request & { permissions?: string[] },
+  ) {
+    const canTax = (req.permissions ?? []).includes('purchase.tax');
+    return this.service.create(dto, user.sub, canTax);
   }
 
   @Patch(':id')
@@ -48,8 +55,10 @@ export class PurchasesController {
     @Param('id') id: string,
     @Body() dto: UpdatePurchaseDto,
     @CurrentUser() user: JwtPayload,
+    @Req() req: Request & { permissions?: string[] },
   ) {
-    return this.service.update(id, dto, user.sub);
+    const canTax = (req.permissions ?? []).includes('purchase.tax');
+    return this.service.update(id, dto, user.sub, canTax);
   }
 
   @Delete(':id')

@@ -14,7 +14,11 @@ import {
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
-import { PaymentMethod, CommissionBasis } from '../../common/enums';
+import {
+  PaymentMethod,
+  CommissionBasis,
+  TaxMode,
+} from '../../common/enums';
 import { resolveLineItemIdFromPayload } from '../../common/utils/line-item-id.util';
 
 export class SaleLineDto {
@@ -113,6 +117,17 @@ export class CreateSaleDto {
   @IsOptional()
   @IsEnum(CommissionBasis)
   commissionBasis?: CommissionBasis;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  taxPercent?: number;
+
+  @IsOptional()
+  @IsEnum(TaxMode)
+  taxMode?: TaxMode;
 
   @IsArray()
   @ArrayMinSize(1)

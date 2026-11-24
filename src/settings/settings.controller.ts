@@ -21,6 +21,7 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { UpdateBrandingDto } from './dto/branding.dto';
 import { UpdateCommissionSettingsDto } from './dto/commission-settings.dto';
+import { UpdateTaxSettingsDto } from './dto/tax-settings.dto';
 import { SettingsService } from './settings.service';
 
 function requestBaseUrl(req: Request) {
@@ -82,5 +83,29 @@ export class SettingsController {
   @RequirePermissions('settings.write')
   updateCommission(@Body() dto: UpdateCommissionSettingsDto) {
     return this.settings.updateCommissionSettings(dto);
+  }
+
+  @Get('tax')
+  @RequirePermissions('settings.read')
+  getTax() {
+    return this.settings.getTaxSettings();
+  }
+
+  @Get('tax/defaults')
+  @RequireAnyPermissions(
+    'sales.read',
+    'sales.write',
+    'purchase.read',
+    'purchase.write',
+    'settings.read',
+  )
+  getTaxDefaults() {
+    return this.settings.getTaxDefaults();
+  }
+
+  @Patch('tax')
+  @RequirePermissions('settings.write')
+  updateTax(@Body() dto: UpdateTaxSettingsDto) {
+    return this.settings.updateTaxSettings(dto);
   }
 }

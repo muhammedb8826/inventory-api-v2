@@ -10,18 +10,31 @@ import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { randomUUID } from 'crypto';
 import { DataSource, Repository } from 'typeorm';
-import { CommissionBasis, DEFAULT_COMMISSION_PERCENT } from '../common/enums';
+import {
+  CommissionBasis,
+  DEFAULT_COMMISSION_PERCENT,
+  TaxMode,
+} from '../common/enums';
 import {
   COMMISSION_SETTINGS_ID,
   CommissionSettings,
 } from '../database/entities/commission-settings.entity';
 import { SiteBranding } from '../database/entities/site-branding.entity';
+import {
+  TAX_SETTINGS_ID,
+  TaxSettings,
+} from '../database/entities/tax-settings.entity';
 import { BrandingResponse, UpdateBrandingDto } from './dto/branding.dto';
 import {
   CommissionDefaultsView,
   CommissionSettingsView,
   UpdateCommissionSettingsDto,
 } from './dto/commission-settings.dto';
+import {
+  TaxDefaultsView,
+  TaxSettingsView,
+  UpdateTaxSettingsDto,
+} from './dto/tax-settings.dto';
 
 const ALLOWED_MIME: Record<string, string> = {
   'image/jpeg': '.jpg',
@@ -42,6 +55,8 @@ export class SettingsService implements OnModuleInit {
     private readonly repo: Repository<SiteBranding>,
     @InjectRepository(CommissionSettings)
     private readonly commissionRepo: Repository<CommissionSettings>,
+    @InjectRepository(TaxSettings)
+    private readonly taxRepo: Repository<TaxSettings>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly config: ConfigService,
@@ -50,6 +65,7 @@ export class SettingsService implements OnModuleInit {
   async onModuleInit() {
     await this.ensureRow();
     await this.ensureCommissionSettings();
+    await this.ensureTaxSettings();
     if (!existsSync(this.uploadDir)) {
       mkdirSync(this.uploadDir, { recursive: true });
     }
@@ -297,5 +313,110 @@ export class SettingsService implements OnModuleInit {
     if (dto.defaultBasis !== undefined) row.defaultBasis = dto.defaultBasis;
     const saved = await this.commissionRepo.save(row);
     return this.toCommissionView(saved);
+  }
+
+  private async ensureTaxTable() {
+    await this.dataSource.query(`
+      DO $$ BEGIN
+        CREATE TYPE "tax_mode_enum" AS ENUM ('EXCLUSIVE', 'INCLUSIVE');
+      EXCEPTION
+        WHEN duplicate_object THEN null;
+      END $$
+    `);
+    await this.dataSource.query(`
+      CREATE TABLE IF NOT EXISTS "tax_settings" (
+        "id" character varying(32) NOT NULL DEFAULT 'default',
+        "enabled" boolean NOT NULL DEFAULT false,
+        "default_percent" numeric(5,2) NOT NULL DEFAULT 0,
+        "default_mode" "tax_mode_enum" NOT NULL DEFAULT 'EXCLUSIVE',
+        "apply_to_sales" boolean NOT NULL DEFAULT true,
+        "apply_to_purchases" boolean NOT NULL DEFAULT true,
+        "created_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
+        "updated_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT "PK_tax_settings" PRIMARY KEY ("id")
+      )
+    `);
+  }
+
+  async ensureTaxSettings(): Promise<TaxSettings> {
+    try {
+      await this.ensureTaxTable();
+      let row = await this.taxRepo.findOne({
+        where: { id: TAX_SETTINGS_ID },
+      });
+      if (!row) {
+        row = await this.taxRepo.save(
+          this.taxRepo.create({
+            id: TAX_SETTINGS_ID,
+            enabled: false,
+            defaultPercent: '0.00',
+            defaultMode: TaxMode.EXCLUSIVE,
+            applyToSales: true,
+            applyToPurchases: true,
+          }),
+        );
+      }
+      return row;
+    } catch (err) {
+      this.logger.error(
+        'Failed to ensure tax_settings row; run migration:run',
+        err instanceof Error ? err.stack : err,
+      );
+      throw err;
+    }
+  }
+
+  private toTaxView(row: TaxSettings): TaxSettingsView {
+    return {
+      id: row.id,
+      enabled: row.enabled,
+      defaultPercent: parseFloat(row.defaultPercent),
+      defaultMode: row.defaultMode,
+      applyToSales: row.applyToSales,
+      applyToPurchases: row.applyToPurchases,
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+    };
+  }
+
+  private toTaxDefaults(row: TaxSettings): TaxDefaultsView {
+    return {
+      enabled: row.enabled,
+      defaultPercent: parseFloat(row.defaultPercent),
+      defaultMode: row.defaultMode,
+      applyToSales: row.applyToSales,
+      applyToPurchases: row.applyToPurchases,
+    };
+  }
+
+  async getTaxSettings(): Promise<TaxSettingsView> {
+    const row = await this.ensureTaxSettings();
+    return this.toTaxView(row);
+  }
+
+  async getTaxDefaults(): Promise<TaxDefaultsView> {
+    const row = await this.ensureTaxSettings();
+    return this.toTaxDefaults(row);
+  }
+
+  async getTaxPlan(): Promise<TaxSettings> {
+    return this.ensureTaxSettings();
+  }
+
+  async updateTaxSettings(
+    dto: UpdateTaxSettingsDto,
+  ): Promise<TaxSettingsView> {
+    const row = await this.ensureTaxSettings();
+    if (dto.enabled !== undefined) row.enabled = dto.enabled;
+    if (dto.defaultPercent !== undefined) {
+      row.defaultPercent = dto.defaultPercent.toFixed(2);
+    }
+    if (dto.defaultMode !== undefined) row.defaultMode = dto.defaultMode;
+    if (dto.applyToSales !== undefined) row.applyToSales = dto.applyToSales;
+    if (dto.applyToPurchases !== undefined) {
+      row.applyToPurchases = dto.applyToPurchases;
+    }
+    const saved = await this.taxRepo.save(row);
+    return this.toTaxView(saved);
   }
 }

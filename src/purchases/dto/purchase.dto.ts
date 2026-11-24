@@ -8,11 +8,12 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Max,
   Min,
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
-import { PaymentMethod } from '../../common/enums';
+import { PaymentMethod, TaxMode } from '../../common/enums';
 import { resolveLineItemIdFromPayload } from '../../common/utils/line-item-id.util';
 
 export class PurchaseLineDto {
@@ -83,6 +84,17 @@ export class CreatePurchaseDto {
   @IsOptional()
   @IsDateString()
   creditDueDate?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  taxPercent?: number;
+
+  @IsOptional()
+  @IsEnum(TaxMode)
+  taxMode?: TaxMode;
 
   @IsArray()
   @ArrayMinSize(1)
